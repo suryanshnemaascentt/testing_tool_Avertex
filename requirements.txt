@@ -1,0 +1,16 @@
+# ============================================================
+# requirements.txt
+# A-Vertex Automation Tool — Python dependencies
+#
+# Install:
+#   pip install -r requirements.txt
+#   playwright install chromium
+# ============================================================
+
+# Browser automation framework
+playwright>=1.40.0
+
+# Standard library only beyond this point —
+# no additional third-party packages required.
+#
+# json, os, re, asyncio, datetime — all built into Python 3.10+
