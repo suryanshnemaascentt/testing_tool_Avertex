@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 from config.settings import T_SHORT, T_SAVE, T_DATE_SEG
 from executor.actions import mui_select, mui_autocomplete
+from datetime import datetime as _dt
 
 # ============================================================
 # executor/form_filler.py — Module-specific form fill logic.
@@ -55,6 +56,18 @@ async def fill_project_form(page, p):
 
     chosen_billing = await mui_select(page, "Billing Type", p.get("billing_type"))
     await _wait(page, T_SHORT)
+
+    # Click save (tick) button — wait for it to become enabled after form fill
+    try:
+        save_btn = page.locator("button.Mui-disabled.MuiIconButton-root + button.MuiIconButton-root")
+        if await save_btn.count() == 0:
+            save_btn = page.locator("button.MuiIconButton-sizeMedium:not(.Mui-disabled)").first
+        await save_btn.wait_for(state="visible", timeout=2000)
+        await save_btn.click()
+        print("   [OK] Save (tick) button clicked")
+        await _wait(page, 1500)
+    except Exception as e:
+        print("   [ERR] Save button: {}".format(e))
     await mui_select(page, "Currency", p.get("currency"))
 
     # 3. Client autocomplete — only shown for Billable projects
@@ -212,15 +225,21 @@ async def _save_form(page):
  
 async def fill_job_form(page, p):
     """
-    Fill the inline Add Job form row.
+    Fill the inline Add Job form row and click the tick (save) button.
  
-    Fields (from HTML inspection):
-        Job Name  — text input  id="_r_rk_"  placeholder "e.g., Discovery..."
-        Start     — date input  id="_r_rl_"  type=date  format YYYY-MM-DD
-        End       — date input  id="_r_rm_"  type=date  format YYYY-MM-DD
-        Hours     — number input id="_r_rn_" type=number
+    Fields:
+        Job Name  — text input  placeholder "e.g., Discovery, Development..."
+        Start     — date input  type=date  format YYYY-MM-DD
+        End       — date input  type=date  format YYYY-MM-DD
+        Hours     — number input type=number
+ 
+    After filling, clicks the tick button via JS because:
+    - The save button starts as disabled (Mui-disabled)
+    - It becomes enabled after job name is filled
+    - JS dispatch is more reliable than Playwright click for MUI icon buttons
     """
-    job_name   = p.get("job_name",   "Job_{}".format(__import__('datetime').datetime.now().strftime("%H%M%S")))
+    from datetime import datetime as _dt
+    job_name   = p.get("job_name") or "Job_{}".format(_dt.now().strftime("%H%M%S"))
     start_date = p.get("start_date", "")
     end_date   = p.get("end_date",   "")
     hours      = p.get("hours",      "8")
@@ -229,12 +248,12 @@ async def fill_job_form(page, p):
         job_name, start_date, end_date, hours))
  
     # ── Job Name ──────────────────────────────────────────────
-    # Try by id first (most reliable), then by placeholder
+    # Use placeholder — ID is dynamic per session
     try:
         inp = page.locator(
-    "input[placeholder*='Discovery' i], "
-    "input[placeholder*='Development' i], "
-    "input[placeholder*='Testing' i], "
+            "input[placeholder*='Discovery' i], "
+            "input[placeholder*='Development' i], "
+            "input[placeholder*='Testing' i], "
             "input[placeholder*='e.g.' i]"
         ).first
         if await inp.count() == 0:
@@ -242,18 +261,19 @@ async def fill_job_form(page, p):
                 "input.MuiInputBase-inputSizeSmall[type='text']"
             ).first
         await inp.scroll_into_view_if_needed(timeout=2000)
-        await inp.triple_click(timeout=2000)
+        await inp.click(click_count=3, timeout=2000)
         await inp.fill(job_name)
+        await page.keyboard.press("Tab")
         print("   [OK] Job Name: {!r}".format(job_name))
     except Exception as e:
         print("   [ERR] Job Name: {}".format(e))
  
     # ── Start Date ────────────────────────────────────────────
-    # type=date inputs accept YYYY-MM-DD via fill() directly
     if start_date:
         try:
             inp = page.locator("input[type='date']").first
             await inp.fill(start_date)
+            await page.keyboard.press("Tab")
             print("   [OK] Start Date: {}".format(start_date))
         except Exception as e:
             print("   [ERR] Start Date: {}".format(e))
@@ -263,18 +283,168 @@ async def fill_job_form(page, p):
         try:
             inp = page.locator("input[type='date']").nth(1)
             await inp.fill(end_date)
+            await page.keyboard.press("Tab")
             print("   [OK] End Date: {}".format(end_date))
         except Exception as e:
             print("   [ERR] End Date: {}".format(e))
  
     # ── Hours ─────────────────────────────────────────────────
     try:
-        inp = page.locator("input[type='number']").first
+        inp = page.locator("input[type='number'][min='0']").first
         await inp.click(click_count=3, timeout=2000)
         await inp.fill(hours)
+        await page.keyboard.press("Tab")
         print("   [OK] Hours: {}".format(hours))
     except Exception as e:
         print("   [ERR] Hours: {}".format(e))
  
     await _wait(page, T_SHORT)
  
+    # ── Tick (save) button ────────────────────────────────────
+    # Save button starts disabled, becomes enabled after job name is filled.
+    # JS dispatch is used because:
+    #   1. Playwright cannot click disabled elements
+    #   2. After fill, MUI re-renders — JS ensures the click lands correctly
+    try:
+        await page.evaluate("""() => {
+            // Find tick button by its unique SVG path (checkmark shape)
+            const allBtns = Array.from(document.querySelectorAll('button'));
+            for (const btn of allBtns) {
+                const path = btn.querySelector('path');
+                if (path && path.getAttribute('d') &&
+                    path.getAttribute('d').startsWith('M9 16.17')) {
+                    btn.dispatchEvent(new MouseEvent('mousedown', {bubbles:true}));
+                    btn.dispatchEvent(new MouseEvent('mouseup',   {bubbles:true}));
+                    btn.dispatchEvent(new MouseEvent('click',     {bubbles:true}));
+                    return 'clicked-by-path';
+                }
+            }
+            return 'not-found';
+        }""")
+        print("   [OK] Tick (save) button clicked")
+        await _wait(page, 1500)
+    except Exception as e:
+        print("   [ERR] Tick button: {}".format(e))
+        print("   [OK] Tick (save) button clicked")
+        await _wait(page, 1500)
+    except Exception as e:
+        print("   [ERR] Tick button: {}".format(e))
+
+
+# ============================================================
+# ACTIVITY FORM
+# ============================================================
+async def fill_activity_form(page, p):
+    """
+    Fill the inline Add Activity form row and click tick (save).
+
+    Fields (from HTML inspection):
+        Task name  — text input  placeholder="Task name"
+        Job/Phase  — MUI select dropdown nth(0) — match by job_name
+        Hours      — number input  type=number  min=0
+        Priority   — MUI select dropdown nth(1) — pick random
+    """
+    import random as _random
+    activity_name = p.get("activity_name") or "Activity_{}".format(
+        __import__('datetime').datetime.now().strftime("%H%M%S"))
+    hours    = p.get("hours", str(_random.randint(1, 8)))
+    job_name = p.get("job_name", "")
+
+    print("\n[ACTIVITY FORM] name='{}' hours={} job='{}'".format(
+        activity_name, hours, job_name))
+
+    # ── Task Name ─────────────────────────────────────────────
+    try:
+        inp = page.locator(
+            "input[placeholder*='Task' i], "
+            "input[placeholder*='Activity' i], "
+            "input[placeholder*='name' i]"
+        ).first
+        await inp.scroll_into_view_if_needed(timeout=2000)
+        await inp.click(click_count=3, timeout=2000)
+        await inp.fill(activity_name)
+        await page.keyboard.press("Tab")
+        print("   [OK] Task Name: {!r}".format(activity_name))
+    except Exception as e:
+        print("   [ERR] Task Name: {}".format(e))
+
+    # ── Job / Phase dropdown — nth(0) — match by job_name ─────
+    try:
+        all_dropdowns = page.locator("div[role='combobox'].MuiSelect-select")
+        job_dropdown  = all_dropdowns.nth(0)
+        if await job_dropdown.count() > 0:
+            await job_dropdown.click(timeout=2000)        # ← fixed: timeout not TimeoutError
+            await page.wait_for_timeout(600)
+            options = page.locator('[role="option"]')
+            count   = await options.count()
+            if count > 0 and job_name:
+                matched = False
+                for i in range(count):
+                    opt = options.nth(i)
+                    txt = await opt.inner_text()
+                    if job_name.lower() in txt.lower():
+                        await opt.click()
+                        print("   [OK] Job/Phase: {!r}".format(txt.strip()))
+                        matched = True
+                        break
+                if not matched:
+                    print("   [ERR] Job '{}' not found. Available:".format(job_name))
+                    for i in range(count):
+                        txt = await options.nth(i).inner_text()
+                        print("         - {!r}".format(txt.strip()))
+                    await page.keyboard.press("Escape")
+            elif count > 0:
+                await options.nth(0).click()
+                print("   [OK] Job/Phase: first option selected")
+    except Exception as e:
+        print("   [ERR] Job/Phase dropdown: {}".format(e))
+
+    # ── Hours ─────────────────────────────────────────────────
+    try:
+        inp = page.locator("input[type='number'][min='0']").first
+        await inp.click(click_count=3, timeout=2000)
+        await inp.fill(hours)
+        await page.keyboard.press("Tab")
+        print("   [OK] Hours: {}".format(hours))
+    except Exception as e:
+        print("   [ERR] Hours: {}".format(e))
+
+    # ── Priority dropdown — nth(1) — pick random ──────────────
+    try:
+        all_dropdowns    = page.locator("div[role='combobox'].MuiSelect-select")
+        prio_dropdown    = all_dropdowns.nth(1)
+        if await prio_dropdown.count() > 0:
+            await prio_dropdown.click(timeout=2000)
+            await page.wait_for_timeout(600)
+            options = page.locator('[role="option"]')
+            count   = await options.count()
+            if count > 0:
+                chosen = options.nth(_random.randint(0, count - 1))
+                txt    = await chosen.inner_text()
+                await chosen.click()
+                print("   [OK] Priority: {!r}".format(txt.strip()))
+    except Exception as e:
+        print("   [ERR] Priority dropdown: {}".format(e))
+
+    await _wait(page, T_SHORT)
+
+    # ── Tick (save) button ─────────────────────────────────────
+    try:
+        await page.evaluate("""() => {
+            const allBtns = Array.from(document.querySelectorAll('button'));
+            for (const btn of allBtns) {
+                const path = btn.querySelector('path');
+                if (path && path.getAttribute('d') &&
+                    path.getAttribute('d').startsWith('M9 16.17')) {
+                    btn.dispatchEvent(new MouseEvent('mousedown', {bubbles:true}));
+                    btn.dispatchEvent(new MouseEvent('mouseup',   {bubbles:true}));
+                    btn.dispatchEvent(new MouseEvent('click',     {bubbles:true}));
+                    return 'clicked';
+                }
+            }
+            return 'not-found';
+        }""")
+        print("   [OK] Tick (save) button clicked")
+        await _wait(page, 1500)
+    except Exception as e:
+        print("   [ERR] Tick button: {}".format(e))
