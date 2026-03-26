@@ -1,0 +1,133 @@
+{
+  "goal": "estimate_ai estimate_AI_based",
+  "url": "https://vertex-dev.savetime.com/",
+  "result": "FAIL",
+  "reason": "Browser closed",
+  "duration": "100.1s",
+  "started_at": "2026-03-25T17:44:56.339771",
+  "ended_at": "2026-03-25T17:46:36.402074",
+  "steps": [
+    {
+      "step": 1,
+      "action": {
+        "action": "type",
+        "selector": "#i0116",
+        "text": "suraj.kadam@ascentt.com"
+      },
+      "url": "https://vertex-dev.savetime.com/",
+      "success": true
+    },
+    {
+      "step": 2,
+      "action": {
+        "action": "click",
+        "selector": "#idSIButton9"
+      },
+      "url": "https://login.microsoftonline.com/19220479-e2a8-4137-9aec-956ada3f2bd5/oauth2/v2.0/authorize?client_id=f6504864-057b-40b4-a813-828a60807a0f&response_type=code&redirect_uri=https://vertex-dev.savetime.com:8000/auth/callback&scope=openid%20profile%20email%20User.Read&response_mode=query&code_challenge=6LuKWZUK51E1a1liJuT9gynvhitRBvcKNsqEVzkLfls&code_challenge_method=S256&state=RDwJ05GoNuw3cYGjtrtYOgSWJy-eQdnO6DD2d_HU9Zo&sso_reload=true",
+      "success": true
+    },
+    {
+      "step": 3,
+      "action": {
+        "action": "type",
+        "selector": "#i0118",
+        "text": "$Sara$1001"
+      },
+      "url": "https://login.microsoftonline.com/19220479-e2a8-4137-9aec-956ada3f2bd5/oauth2/v2.0/authorize?client_id=f6504864-057b-40b4-a813-828a60807a0f&response_type=code&redirect_uri=https://vertex-dev.savetime.com:8000/auth/callback&scope=openid%20profile%20email%20User.Read&response_mode=query&code_challenge=6LuKWZUK51E1a1liJuT9gynvhitRBvcKNsqEVzkLfls&code_challenge_method=S256&state=RDwJ05GoNuw3cYGjtrtYOgSWJy-eQdnO6DD2d_HU9Zo&sso_reload=true",
+      "success": true
+    },
+    {
+      "step": 4,
+      "action": {
+        "action": "click",
+        "selector": "#idSIButton9"
+      },
+      "url": "https://login.microsoftonline.com/19220479-e2a8-4137-9aec-956ada3f2bd5/oauth2/v2.0/authorize?client_id=f6504864-057b-40b4-a813-828a60807a0f&response_type=code&redirect_uri=https://vertex-dev.savetime.com:8000/auth/callback&scope=openid%20profile%20email%20User.Read&response_mode=query&code_challenge=6LuKWZUK51E1a1liJuT9gynvhitRBvcKNsqEVzkLfls&code_challenge_method=S256&state=RDwJ05GoNuw3cYGjtrtYOgSWJy-eQdnO6DD2d_HU9Zo&sso_reload=true",
+      "success": true
+    },
+    {
+      "step": 5,
+      "action": {
+        "action": "click",
+        "selector": "#idSIButton9"
+      },
+      "url": "https://login.microsoftonline.com/19220479-e2a8-4137-9aec-956ada3f2bd5/login",
+      "success": true
+    },
+    {
+      "step": 6,
+      "action": {
+        "action": "click",
+        "selector": "//div[@id='nav-item-estimates']"
+      },
+      "url": "https://vertex-dev.savetime.com/",
+      "success": true
+    },
+    {
+      "step": 7,
+      "action": {
+        "action": "click",
+        "selector": "#new-estimate-button"
+      },
+      "url": "https://vertex-dev.savetime.com/",
+      "success": true
+    },
+    {
+      "step": 8,
+      "action": {
+        "action": "click",
+        "selector": "button:has-text('Start with AI')"
+      },
+      "url": "https://vertex-dev.savetime.com/estimates/",
+      "success": true
+    },
+    {
+      "step": 9,
+      "action": {
+        "action": "type",
+        "selector": "#_r_15_",
+        "text": "AI Project generated at 20260325174554"
+      },
+      "url": "https://vertex-dev.savetime.com/estimates/new/",
+      "success": true
+    },
+    {
+      "step": 10,
+      "action": {
+        "action": "type",
+        "selector": "#_r_16_",
+        "text": "Python"
+      },
+      "url": "https://vertex-dev.savetime.com/demand/",
+      "success": true
+    },
+    {
+      "step": 11,
+      "action": {
+        "action": "click",
+        "selector": "#mui-component-select-gantt_interval"
+      },
+      "url": "https://vertex-dev.savetime.com/demand/",
+      "success": true
+    },
+    {
+      "step": 12,
+      "action": {
+        "action": "type",
+        "selector": "#_r_1a_",
+        "text": "2026-03-26"
+      },
+      "url": "https://vertex-dev.savetime.com/demand/",
+      "success": true
+    },
+    {
+      "step": 13,
+      "action": {
+        "action": "wait",
+        "seconds": 1
+      },
+      "url": "https://vertex-dev.savetime.com/demand/",
+      "success": false
+    }
+  ]
+}

@@ -1,0 +1,196 @@
+{
+  "goal": "estimate_ai estimate_AI_based",
+  "url": "https://vertex-dev.savetime.com/",
+  "result": "PASS",
+  "reason": "",
+  "duration": "153.9s",
+  "started_at": "2026-03-25T19:07:16.565870",
+  "ended_at": "2026-03-25T19:09:50.429718",
+  "steps": [
+    {
+      "step": 1,
+      "action": {
+        "action": "type",
+        "selector": "#i0116",
+        "text": "suraj.kadam@ascentt.com"
+      },
+      "url": "https://vertex-dev.savetime.com/",
+      "success": true
+    },
+    {
+      "step": 2,
+      "action": {
+        "action": "click",
+        "selector": "#idSIButton9"
+      },
+      "url": "https://login.microsoftonline.com/19220479-e2a8-4137-9aec-956ada3f2bd5/oauth2/v2.0/authorize?client_id=f6504864-057b-40b4-a813-828a60807a0f&response_type=code&redirect_uri=https://vertex-dev.savetime.com:8000/auth/callback&scope=openid%20profile%20email%20User.Read&response_mode=query&code_challenge=BKI_Pyc-K3G4elF-kbnRbQPOSY2xLG28kGtYct7R0mA&code_challenge_method=S256&state=gVUOu5y9eRT0fEitCr_46-RzJDZ9vrxMESvjGVXLK9I&sso_reload=true",
+      "success": true
+    },
+    {
+      "step": 3,
+      "action": {
+        "action": "type",
+        "selector": "#i0118",
+        "text": "$Sara$1001"
+      },
+      "url": "https://login.microsoftonline.com/19220479-e2a8-4137-9aec-956ada3f2bd5/oauth2/v2.0/authorize?client_id=f6504864-057b-40b4-a813-828a60807a0f&response_type=code&redirect_uri=https://vertex-dev.savetime.com:8000/auth/callback&scope=openid%20profile%20email%20User.Read&response_mode=query&code_challenge=BKI_Pyc-K3G4elF-kbnRbQPOSY2xLG28kGtYct7R0mA&code_challenge_method=S256&state=gVUOu5y9eRT0fEitCr_46-RzJDZ9vrxMESvjGVXLK9I&sso_reload=true",
+      "success": true
+    },
+    {
+      "step": 4,
+      "action": {
+        "action": "click",
+        "selector": "#idSIButton9"
+      },
+      "url": "https://login.microsoftonline.com/19220479-e2a8-4137-9aec-956ada3f2bd5/oauth2/v2.0/authorize?client_id=f6504864-057b-40b4-a813-828a60807a0f&response_type=code&redirect_uri=https://vertex-dev.savetime.com:8000/auth/callback&scope=openid%20profile%20email%20User.Read&response_mode=query&code_challenge=BKI_Pyc-K3G4elF-kbnRbQPOSY2xLG28kGtYct7R0mA&code_challenge_method=S256&state=gVUOu5y9eRT0fEitCr_46-RzJDZ9vrxMESvjGVXLK9I&sso_reload=true",
+      "success": true
+    },
+    {
+      "step": 5,
+      "action": {
+        "action": "click",
+        "selector": "#idSIButton9"
+      },
+      "url": "https://login.microsoftonline.com/19220479-e2a8-4137-9aec-956ada3f2bd5/login",
+      "success": true
+    },
+    {
+      "step": 6,
+      "action": {
+        "action": "click",
+        "selector": "//div[@id='nav-item-estimates']"
+      },
+      "url": "https://vertex-dev.savetime.com/",
+      "success": true
+    },
+    {
+      "step": 7,
+      "action": {
+        "action": "click",
+        "selector": "#new-estimate-button"
+      },
+      "url": "https://vertex-dev.savetime.com/",
+      "success": true
+    },
+    {
+      "step": 8,
+      "action": {
+        "action": "click",
+        "selector": "button:has-text('Start with AI')"
+      },
+      "url": "https://vertex-dev.savetime.com/estimates/",
+      "success": true
+    },
+    {
+      "step": 9,
+      "action": {
+        "action": "type",
+        "selector": "#_r_15_",
+        "text": "AI Project generated at 20260325190815"
+      },
+      "url": "https://vertex-dev.savetime.com/estimates/new/",
+      "success": true
+    },
+    {
+      "step": 10,
+      "action": {
+        "action": "type",
+        "selector": "#_r_1b_",
+        "text": "2026-04-25"
+      },
+      "url": "https://vertex-dev.savetime.com/demand/",
+      "success": true
+    },
+    {
+      "step": 11,
+      "action": {
+        "action": "click",
+        "selector": "//button[text()='\ud83d\udc65 Fixed Size']"
+      },
+      "url": "https://vertex-dev.savetime.com/demand/",
+      "success": true
+    },
+    {
+      "step": 12,
+      "action": {
+        "action": "type",
+        "selector": "//input[@name='team_size']",
+        "text": "5"
+      },
+      "url": "https://vertex-dev.savetime.com/demand/",
+      "success": true
+    },
+    {
+      "step": 13,
+      "action": {
+        "action": "click",
+        "selector": "#mui-component-select-display_currency"
+      },
+      "url": "https://vertex-dev.savetime.com/demand/",
+      "success": true
+    },
+    {
+      "step": 14,
+      "action": {
+        "action": "wait",
+        "seconds": 2
+      },
+      "url": "https://vertex-dev.savetime.com/demand/",
+      "success": true
+    },
+    {
+      "step": 15,
+      "action": {
+        "action": "click",
+        "selector": "(//ul[@role='listbox']//li)[5]"
+      },
+      "url": "https://vertex-dev.savetime.com/demand/",
+      "success": true
+    },
+    {
+      "step": 16,
+      "action": {
+        "action": "click",
+        "selector": "//button[text()='\ud83c\udfe2 Onsite']"
+      },
+      "url": "https://vertex-dev.savetime.com/demand/",
+      "success": true
+    },
+    {
+      "step": 17,
+      "action": {
+        "action": "click",
+        "selector": "//button[text()='\ud83c\udf10 Offshore']"
+      },
+      "url": "https://vertex-dev.savetime.com/demand/",
+      "success": true
+    },
+    {
+      "step": 18,
+      "action": {
+        "action": "click",
+        "selector": "//button[text()='\ud83d\udd04 Hybrid']"
+      },
+      "url": "https://vertex-dev.savetime.com/demand/",
+      "success": true
+    },
+    {
+      "step": 19,
+      "action": {
+        "action": "click",
+        "selector": "button:has-text('Generate Estimate')"
+      },
+      "url": "https://vertex-dev.savetime.com/demand/",
+      "success": true
+    },
+    {
+      "step": 20,
+      "action": {
+        "action": "done",
+        "result": "PASS"
+      },
+      "url": "https://vertex-dev.savetime.com/demand/",
+      "success": null
+    }
+  ]
+}

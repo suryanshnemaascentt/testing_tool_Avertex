@@ -1,0 +1,20 @@
+{
+  "goal": "edit client",
+  "url": "https://vertex-dev.savetime.com/",
+  "result": "FAIL",
+  "reason": "Browser closed",
+  "duration": "6.8s",
+  "started_at": "2026-03-19T16:49:28.859161",
+  "ended_at": "2026-03-19T16:49:35.614247",
+  "steps": [
+    {
+      "step": 1,
+      "action": {
+        "action": "navigate",
+        "url": "https://vertex-dev.savetime.com/settings/clients/"
+      },
+      "url": "https://vertex-dev.savetime.com/",
+      "success": true
+    }
+  ]
+}

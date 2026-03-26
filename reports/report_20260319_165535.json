@@ -1,0 +1,218 @@
+{
+  "goal": "edit client",
+  "url": "https://vertex-dev.savetime.com/",
+  "result": "FAIL",
+  "reason": "Browser closed",
+  "duration": "86.8s",
+  "started_at": "2026-03-19T16:55:35.783517",
+  "ended_at": "2026-03-19T16:57:02.589150",
+  "steps": [
+    {
+      "step": 1,
+      "action": {
+        "action": "navigate",
+        "url": "https://vertex-dev.savetime.com/settings/clients/"
+      },
+      "url": "https://vertex-dev.savetime.com/",
+      "success": true
+    },
+    {
+      "step": 2,
+      "action": {
+        "action": "wait",
+        "seconds": 1
+      },
+      "url": "https://vertex-dev.savetime.com/settings/clients/",
+      "success": true
+    },
+    {
+      "step": 3,
+      "action": {
+        "action": "wait",
+        "seconds": 2
+      },
+      "url": "https://login.microsoftonline.com/19220479-e2a8-4137-9aec-956ada3f2bd5/oauth2/v2.0/authorize?client_id=f6504864-057b-40b4-a813-828a60807a0f&response_type=code&redirect_uri=https://vertex-dev.savetime.com:8000/auth/callback&scope=openid%20profile%20email%20User.Read&response_mode=query&code_challenge=VATa11KonMdeFD_8IcMARs2MWkTiCRgqfAfhlA0wALI&code_challenge_method=S256&state=fUd0Gd-s51N8nJsnF4iRtDzWbp2U_R3EW1D4-V_rpwY",
+      "success": true
+    },
+    {
+      "step": 4,
+      "action": {
+        "action": "wait",
+        "seconds": 2
+      },
+      "url": "https://login.microsoftonline.com/19220479-e2a8-4137-9aec-956ada3f2bd5/oauth2/v2.0/authorize?client_id=f6504864-057b-40b4-a813-828a60807a0f&response_type=code&redirect_uri=https://vertex-dev.savetime.com:8000/auth/callback&scope=openid%20profile%20email%20User.Read&response_mode=query&code_challenge=VATa11KonMdeFD_8IcMARs2MWkTiCRgqfAfhlA0wALI&code_challenge_method=S256&state=fUd0Gd-s51N8nJsnF4iRtDzWbp2U_R3EW1D4-V_rpwY",
+      "success": true
+    },
+    {
+      "step": 5,
+      "action": {
+        "action": "wait",
+        "seconds": 2
+      },
+      "url": "https://login.microsoftonline.com/19220479-e2a8-4137-9aec-956ada3f2bd5/oauth2/v2.0/authorize?client_id=f6504864-057b-40b4-a813-828a60807a0f&response_type=code&redirect_uri=https://vertex-dev.savetime.com:8000/auth/callback&scope=openid%20profile%20email%20User.Read&response_mode=query&code_challenge=VATa11KonMdeFD_8IcMARs2MWkTiCRgqfAfhlA0wALI&code_challenge_method=S256&state=fUd0Gd-s51N8nJsnF4iRtDzWbp2U_R3EW1D4-V_rpwY",
+      "success": true
+    },
+    {
+      "step": 6,
+      "action": {
+        "action": "wait",
+        "seconds": 2
+      },
+      "url": "https://login.microsoftonline.com/19220479-e2a8-4137-9aec-956ada3f2bd5/oauth2/v2.0/authorize?client_id=f6504864-057b-40b4-a813-828a60807a0f&response_type=code&redirect_uri=https://vertex-dev.savetime.com:8000/auth/callback&scope=openid%20profile%20email%20User.Read&response_mode=query&code_challenge=VATa11KonMdeFD_8IcMARs2MWkTiCRgqfAfhlA0wALI&code_challenge_method=S256&state=fUd0Gd-s51N8nJsnF4iRtDzWbp2U_R3EW1D4-V_rpwY",
+      "success": true
+    },
+    {
+      "step": 7,
+      "action": {
+        "action": "wait",
+        "seconds": 2
+      },
+      "url": "https://login.microsoftonline.com/19220479-e2a8-4137-9aec-956ada3f2bd5/oauth2/v2.0/authorize?client_id=f6504864-057b-40b4-a813-828a60807a0f&response_type=code&redirect_uri=https://vertex-dev.savetime.com:8000/auth/callback&scope=openid%20profile%20email%20User.Read&response_mode=query&code_challenge=VATa11KonMdeFD_8IcMARs2MWkTiCRgqfAfhlA0wALI&code_challenge_method=S256&state=fUd0Gd-s51N8nJsnF4iRtDzWbp2U_R3EW1D4-V_rpwY",
+      "success": true
+    },
+    {
+      "step": 8,
+      "action": {
+        "action": "wait",
+        "seconds": 2
+      },
+      "url": "https://login.microsoftonline.com/19220479-e2a8-4137-9aec-956ada3f2bd5/oauth2/v2.0/authorize?client_id=f6504864-057b-40b4-a813-828a60807a0f&response_type=code&redirect_uri=https://vertex-dev.savetime.com:8000/auth/callback&scope=openid%20profile%20email%20User.Read&response_mode=query&code_challenge=VATa11KonMdeFD_8IcMARs2MWkTiCRgqfAfhlA0wALI&code_challenge_method=S256&state=fUd0Gd-s51N8nJsnF4iRtDzWbp2U_R3EW1D4-V_rpwY",
+      "success": true
+    },
+    {
+      "step": 9,
+      "action": {
+        "action": "wait",
+        "seconds": 2
+      },
+      "url": "https://login.microsoftonline.com/19220479-e2a8-4137-9aec-956ada3f2bd5/oauth2/v2.0/authorize?client_id=f6504864-057b-40b4-a813-828a60807a0f&response_type=code&redirect_uri=https://vertex-dev.savetime.com:8000/auth/callback&scope=openid%20profile%20email%20User.Read&response_mode=query&code_challenge=VATa11KonMdeFD_8IcMARs2MWkTiCRgqfAfhlA0wALI&code_challenge_method=S256&state=fUd0Gd-s51N8nJsnF4iRtDzWbp2U_R3EW1D4-V_rpwY",
+      "success": true
+    },
+    {
+      "step": 10,
+      "action": {
+        "action": "wait",
+        "seconds": 2
+      },
+      "url": "https://login.microsoftonline.com/19220479-e2a8-4137-9aec-956ada3f2bd5/oauth2/v2.0/authorize?client_id=f6504864-057b-40b4-a813-828a60807a0f&response_type=code&redirect_uri=https://vertex-dev.savetime.com:8000/auth/callback&scope=openid%20profile%20email%20User.Read&response_mode=query&code_challenge=VATa11KonMdeFD_8IcMARs2MWkTiCRgqfAfhlA0wALI&code_challenge_method=S256&state=fUd0Gd-s51N8nJsnF4iRtDzWbp2U_R3EW1D4-V_rpwY",
+      "success": true
+    },
+    {
+      "step": 11,
+      "action": {
+        "action": "wait",
+        "seconds": 2
+      },
+      "url": "https://login.microsoftonline.com/19220479-e2a8-4137-9aec-956ada3f2bd5/oauth2/v2.0/authorize?client_id=f6504864-057b-40b4-a813-828a60807a0f&response_type=code&redirect_uri=https://vertex-dev.savetime.com:8000/auth/callback&scope=openid%20profile%20email%20User.Read&response_mode=query&code_challenge=VATa11KonMdeFD_8IcMARs2MWkTiCRgqfAfhlA0wALI&code_challenge_method=S256&state=fUd0Gd-s51N8nJsnF4iRtDzWbp2U_R3EW1D4-V_rpwY",
+      "success": true
+    },
+    {
+      "step": 12,
+      "action": {
+        "action": "wait",
+        "seconds": 2
+      },
+      "url": "https://login.microsoftonline.com/19220479-e2a8-4137-9aec-956ada3f2bd5/oauth2/v2.0/authorize?client_id=f6504864-057b-40b4-a813-828a60807a0f&response_type=code&redirect_uri=https://vertex-dev.savetime.com:8000/auth/callback&scope=openid%20profile%20email%20User.Read&response_mode=query&code_challenge=VATa11KonMdeFD_8IcMARs2MWkTiCRgqfAfhlA0wALI&code_challenge_method=S256&state=fUd0Gd-s51N8nJsnF4iRtDzWbp2U_R3EW1D4-V_rpwY",
+      "success": true
+    },
+    {
+      "step": 13,
+      "action": {
+        "action": "wait",
+        "seconds": 2
+      },
+      "url": "https://login.microsoftonline.com/19220479-e2a8-4137-9aec-956ada3f2bd5/oauth2/v2.0/authorize?client_id=f6504864-057b-40b4-a813-828a60807a0f&response_type=code&redirect_uri=https://vertex-dev.savetime.com:8000/auth/callback&scope=openid%20profile%20email%20User.Read&response_mode=query&code_challenge=VATa11KonMdeFD_8IcMARs2MWkTiCRgqfAfhlA0wALI&code_challenge_method=S256&state=fUd0Gd-s51N8nJsnF4iRtDzWbp2U_R3EW1D4-V_rpwY",
+      "success": true
+    },
+    {
+      "step": 14,
+      "action": {
+        "action": "wait",
+        "seconds": 2
+      },
+      "url": "https://login.microsoftonline.com/19220479-e2a8-4137-9aec-956ada3f2bd5/oauth2/v2.0/authorize?client_id=f6504864-057b-40b4-a813-828a60807a0f&response_type=code&redirect_uri=https://vertex-dev.savetime.com:8000/auth/callback&scope=openid%20profile%20email%20User.Read&response_mode=query&code_challenge=VATa11KonMdeFD_8IcMARs2MWkTiCRgqfAfhlA0wALI&code_challenge_method=S256&state=fUd0Gd-s51N8nJsnF4iRtDzWbp2U_R3EW1D4-V_rpwY",
+      "success": true
+    },
+    {
+      "step": 15,
+      "action": {
+        "action": "wait",
+        "seconds": 2
+      },
+      "url": "https://login.microsoftonline.com/19220479-e2a8-4137-9aec-956ada3f2bd5/oauth2/v2.0/authorize?client_id=f6504864-057b-40b4-a813-828a60807a0f&response_type=code&redirect_uri=https://vertex-dev.savetime.com:8000/auth/callback&scope=openid%20profile%20email%20User.Read&response_mode=query&code_challenge=VATa11KonMdeFD_8IcMARs2MWkTiCRgqfAfhlA0wALI&code_challenge_method=S256&state=fUd0Gd-s51N8nJsnF4iRtDzWbp2U_R3EW1D4-V_rpwY",
+      "success": true
+    },
+    {
+      "step": 16,
+      "action": {
+        "action": "wait",
+        "seconds": 2
+      },
+      "url": "https://login.microsoftonline.com/19220479-e2a8-4137-9aec-956ada3f2bd5/oauth2/v2.0/authorize?client_id=f6504864-057b-40b4-a813-828a60807a0f&response_type=code&redirect_uri=https://vertex-dev.savetime.com:8000/auth/callback&scope=openid%20profile%20email%20User.Read&response_mode=query&code_challenge=VATa11KonMdeFD_8IcMARs2MWkTiCRgqfAfhlA0wALI&code_challenge_method=S256&state=fUd0Gd-s51N8nJsnF4iRtDzWbp2U_R3EW1D4-V_rpwY",
+      "success": true
+    },
+    {
+      "step": 17,
+      "action": {
+        "action": "wait",
+        "seconds": 2
+      },
+      "url": "https://login.microsoftonline.com/19220479-e2a8-4137-9aec-956ada3f2bd5/oauth2/v2.0/authorize?client_id=f6504864-057b-40b4-a813-828a60807a0f&response_type=code&redirect_uri=https://vertex-dev.savetime.com:8000/auth/callback&scope=openid%20profile%20email%20User.Read&response_mode=query&code_challenge=VATa11KonMdeFD_8IcMARs2MWkTiCRgqfAfhlA0wALI&code_challenge_method=S256&state=fUd0Gd-s51N8nJsnF4iRtDzWbp2U_R3EW1D4-V_rpwY",
+      "success": true
+    },
+    {
+      "step": 18,
+      "action": {
+        "action": "wait",
+        "seconds": 2
+      },
+      "url": "https://login.microsoftonline.com/19220479-e2a8-4137-9aec-956ada3f2bd5/oauth2/v2.0/authorize?client_id=f6504864-057b-40b4-a813-828a60807a0f&response_type=code&redirect_uri=https://vertex-dev.savetime.com:8000/auth/callback&scope=openid%20profile%20email%20User.Read&response_mode=query&code_challenge=VATa11KonMdeFD_8IcMARs2MWkTiCRgqfAfhlA0wALI&code_challenge_method=S256&state=fUd0Gd-s51N8nJsnF4iRtDzWbp2U_R3EW1D4-V_rpwY",
+      "success": true
+    },
+    {
+      "step": 19,
+      "action": {
+        "action": "wait",
+        "seconds": 2
+      },
+      "url": "https://login.microsoftonline.com/19220479-e2a8-4137-9aec-956ada3f2bd5/oauth2/v2.0/authorize?client_id=f6504864-057b-40b4-a813-828a60807a0f&response_type=code&redirect_uri=https://vertex-dev.savetime.com:8000/auth/callback&scope=openid%20profile%20email%20User.Read&response_mode=query&code_challenge=VATa11KonMdeFD_8IcMARs2MWkTiCRgqfAfhlA0wALI&code_challenge_method=S256&state=fUd0Gd-s51N8nJsnF4iRtDzWbp2U_R3EW1D4-V_rpwY",
+      "success": true
+    },
+    {
+      "step": 20,
+      "action": {
+        "action": "wait",
+        "seconds": 2
+      },
+      "url": "https://login.microsoftonline.com/19220479-e2a8-4137-9aec-956ada3f2bd5/oauth2/v2.0/authorize?client_id=f6504864-057b-40b4-a813-828a60807a0f&response_type=code&redirect_uri=https://vertex-dev.savetime.com:8000/auth/callback&scope=openid%20profile%20email%20User.Read&response_mode=query&code_challenge=VATa11KonMdeFD_8IcMARs2MWkTiCRgqfAfhlA0wALI&code_challenge_method=S256&state=fUd0Gd-s51N8nJsnF4iRtDzWbp2U_R3EW1D4-V_rpwY",
+      "success": true
+    },
+    {
+      "step": 21,
+      "action": {
+        "action": "wait",
+        "seconds": 2
+      },
+      "url": "https://login.microsoftonline.com/19220479-e2a8-4137-9aec-956ada3f2bd5/oauth2/v2.0/authorize?client_id=f6504864-057b-40b4-a813-828a60807a0f&response_type=code&redirect_uri=https://vertex-dev.savetime.com:8000/auth/callback&scope=openid%20profile%20email%20User.Read&response_mode=query&code_challenge=VATa11KonMdeFD_8IcMARs2MWkTiCRgqfAfhlA0wALI&code_challenge_method=S256&state=fUd0Gd-s51N8nJsnF4iRtDzWbp2U_R3EW1D4-V_rpwY",
+      "success": true
+    },
+    {
+      "step": 22,
+      "action": {
+        "action": "wait",
+        "seconds": 2
+      },
+      "url": "https://login.microsoftonline.com/19220479-e2a8-4137-9aec-956ada3f2bd5/oauth2/v2.0/authorize?client_id=f6504864-057b-40b4-a813-828a60807a0f&response_type=code&redirect_uri=https://vertex-dev.savetime.com:8000/auth/callback&scope=openid%20profile%20email%20User.Read&response_mode=query&code_challenge=VATa11KonMdeFD_8IcMARs2MWkTiCRgqfAfhlA0wALI&code_challenge_method=S256&state=fUd0Gd-s51N8nJsnF4iRtDzWbp2U_R3EW1D4-V_rpwY",
+      "success": true
+    },
+    {
+      "step": 23,
+      "action": {
+        "action": "wait",
+        "seconds": 2
+      },
+      "url": "https://login.microsoftonline.com/19220479-e2a8-4137-9aec-956ada3f2bd5/oauth2/v2.0/authorize?client_id=f6504864-057b-40b4-a813-828a60807a0f&response_type=code&redirect_uri=https://vertex-dev.savetime.com:8000/auth/callback&scope=openid%20profile%20email%20User.Read&response_mode=query&code_challenge=VATa11KonMdeFD_8IcMARs2MWkTiCRgqfAfhlA0wALI&code_challenge_method=S256&state=fUd0Gd-s51N8nJsnF4iRtDzWbp2U_R3EW1D4-V_rpwY",
+      "success": false
+    }
+  ]
+}

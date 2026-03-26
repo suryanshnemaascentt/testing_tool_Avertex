@@ -3,6 +3,28 @@ MODULES = {
         "name": "Project",
         "fragment": "projects",
     },
+
+    
+    "client": {
+        "name": "client",
+    "fragment": "Clients"
+    },
+
+    "add_client": {   # ✅ ADD THIS BLOCK
+        "name": "Add Client",
+        "fragment": "clients"
+    },
+
+    "access_control": {
+        "name": "Access Control",
+        "fragment": "access",
+    },
+
+    "estimate_AI_based": {
+        "name": "AI-Based Estimation",
+        "fragment": "estimates"
+    },
+
 }
 
 MODULE_KEYS = list(MODULES.keys())

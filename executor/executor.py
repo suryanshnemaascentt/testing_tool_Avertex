@@ -74,6 +74,9 @@ async def execute_step(page, dom, step: dict) -> bool:
 
         if action == "fill_form":
             return await _fill_form(page, step.get("params", {}))
+        
+        elif action == "fill_client_form":
+            return await _fill_client_form(page, step.get("params", {}))
 
         # ── Selector-required actions ──────────────────────
         if not selector:
@@ -110,7 +113,24 @@ async def execute_step(page, dom, step: dict) -> bool:
         import traceback
         traceback.print_exc()
         return False
+# ===============================
+# SELECT FIRST OPTION (Dropdown)
+# ===============================
+    if action["action"] == "select_first_option":
+        print("[?] Selecting first dropdown option")
 
+        options = page.locator('[role="option"]')
+
+        count = await options.count()
+        print(f"   Found {count} option(s)")
+
+        if count > 0:
+            await options.first.click()
+            print("   [OK] First option selected")
+        else:
+            print("   [WARN] No options found")
+
+        return
 
 # =========================================================
 # FILL FORM
@@ -657,3 +677,86 @@ async def _select(page, element, value: str) -> bool:
             pass
     print(f"   [ERR] Select failed: {value!r}")
     return False
+#----------------------------------------------------------------------------------
+
+
+# =========================================================
+# FILL CLIENT FORM
+# =========================================================
+
+async def _fill_client_form(page, p: dict) -> bool:
+    print(f"\n{'='*55}")
+    print("[FORM] EDIT CLIENT")
+    print(f"{'='*55}")
+
+    name     = p.get("client_name", f"AutoClient_{datetime.now().strftime('%H%M%S')}")
+    email    = p.get("email", "auto@test.com")
+    phone    = p.get("phone", "9876543210")
+    website  = p.get("website", "https://example.com")
+    address  = p.get("address", "Auto Address")
+    city     = p.get("city", "Pune")
+    country  = p.get("country", "India")
+    industry = p.get("industry", "IT")
+
+    # ── Text Inputs (generic MUI handling) ─────────────────
+
+    async def fill_by_label(label, value):
+        try:
+            sel = await page.evaluate("""([lbl]) => {
+                const norm = s => s.toLowerCase().trim();
+                for (const label of document.querySelectorAll('label')) {
+                    if (norm(label.textContent).includes(norm(lbl))) {
+                        if (label.htmlFor) return '#' + label.htmlFor;
+                    }
+                }
+                return null;
+            }""", [label])
+
+            if sel:
+                inp = page.locator(sel).first
+                await inp.click(click_count=3)
+                await inp.fill(value)
+                print(f"   [OK] {label}: {value}")
+            else:
+                print(f"   [WARN] {label}: not found")
+
+        except Exception as e:
+            print(f"   [ERR] {label}: {e}")
+
+    await fill_by_label("Client Name", name)
+    await fill_by_label("Email", email)
+    await fill_by_label("Phone", phone)
+    await fill_by_label("Website", website)
+    await fill_by_label("Address", address)
+    await fill_by_label("City", city)
+    await fill_by_label("Country", country)
+    await fill_by_label("Industry", industry)
+
+    # ── Size Dropdown (MUI Select) ─────────────────────────
+    await _mui_select(page, "Size", p.get("size"))
+
+    # ── Active Toggle ──────────────────────────────────────
+    try:
+        toggle = page.locator("input[role='switch']").first
+        desired = p.get("active", True)
+        is_checked = await toggle.is_checked()
+
+        if desired != is_checked:
+            await toggle.click()
+            print(f"   [OK] Active toggled -> {desired}")
+        else:
+            print(f"   [OK] Active already {desired}")
+
+    except Exception as e:
+        print(f"   [WARN] Active toggle: {e}")
+
+    # ── Save ───────────────────────────────────────────────
+    try:
+        btn = page.get_by_role("button", name="Save").last
+        await btn.click()
+        print("   [OK] Save Client clicked")
+        await page.wait_for_timeout(_T_SAVE)
+        return True
+    except Exception as e:
+        print(f"   [ERR] Save Client: {e}")
+        return False

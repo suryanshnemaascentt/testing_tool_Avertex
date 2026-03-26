@@ -1,0 +1,38 @@
+{
+  "goal": "edit client",
+  "url": "https://vertex-dev.savetime.com/",
+  "result": "FAIL",
+  "reason": "Browser closed",
+  "duration": "15.6s",
+  "started_at": "2026-03-18T18:23:07.427038",
+  "ended_at": "2026-03-18T18:23:22.978379",
+  "steps": [
+    {
+      "step": 1,
+      "action": {
+        "action": "navigate",
+        "url": "https://vertex-dev.savetime.com/settings/clients/"
+      },
+      "url": "https://vertex-dev.savetime.com/",
+      "success": true
+    },
+    {
+      "step": 2,
+      "action": {
+        "action": "wait",
+        "seconds": 1
+      },
+      "url": "https://vertex-dev.savetime.com/settings/clients/",
+      "success": true
+    },
+    {
+      "step": 3,
+      "action": {
+        "action": "navigate",
+        "url": "https://vertex-dev.savetime.com/settings/clients/"
+      },
+      "url": "https://login.microsoftonline.com/19220479-e2a8-4137-9aec-956ada3f2bd5/oauth2/v2.0/authorize?client_id=f6504864-057b-40b4-a813-828a60807a0f&response_type=code&redirect_uri=https://vertex-dev.savetime.com:8000/auth/callback&scope=openid%20profile%20email%20User.Read&response_mode=query&code_challenge=HTUaDtE_qAkhPnIHDU9ehyGlM-nYPh3Epgc4G2cWq7Q&code_challenge_method=S256&state=_fZI0i9sjAbUWUelte9DltUzbmPwRhfSDcpjOtL-Ho4",
+      "success": true
+    }
+  ]
+}

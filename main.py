@@ -18,7 +18,20 @@ def _load_module_handler(module_key):
     if module_key == "project":
         from modules.project import decide_action, reset_state, ACTIONS, ACTION_KEYS
         return decide_action, reset_state, ACTIONS, ACTION_KEYS
+    elif module_key == "client":
+        from modules.client import decide_action, reset_state, ACTIONS, ACTION_KEYS
+        return decide_action, reset_state, ACTIONS, ACTION_KEYS
+    elif module_key == "add_client":   # ✅ ADD THIS BLOCK
+        from modules.add_client import decide_action, reset_state, ACTIONS, ACTION_KEYS
+        return decide_action, reset_state, ACTIONS, ACTION_KEYS
+    elif module_key == "access_control":
+        from modules.access_control import decide_action, reset_state, ACTIONS, ACTION_KEYS
+        return decide_action, reset_state, ACTIONS, ACTION_KEYS
+    elif module_key == "estimate_AI_based":
+        from modules.estimate_AI_based import decide_action, reset_state, ACTIONS, ACTION_KEYS
+        return decide_action, reset_state, ACTIONS, ACTION_KEYS
     raise ValueError("Unknown module: " + module_key)
+    
 
 
 async def is_page_alive(page):
@@ -103,6 +116,7 @@ async def run(url, module_key, action_key, goal,
                 await page.wait_for_timeout(_SSO_SETTLE_MS)
 
             raw_dom = await extract_live_dom(page)
+            print("dom print",raw_dom)
             if not last_was_wait:
                 print("[DOM] {} elements".format(len(raw_dom)))
 
@@ -215,13 +229,13 @@ def get_inputs():
     if not url:
         url = "https://vertex-dev.savetime.com/"
 
-    email = input("  Email    [suryansh.nema@ascentt.com]: ").strip()
+    email = input("  Email    [suraj.kadam@ascentt.com]: ").strip()
     if not email:
-        email = "suryansh.nema@ascentt.com"
+        email = "suraj.kadam@ascentt.com"
 
     password = input("  Password: ").strip()
     if not password:
-        password='************'
+        password='$Sara$1001'
     module_key, module_info = _select_module()
     action_key, goal        = _select_action(module_key, module_info)
 
