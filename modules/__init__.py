@@ -18,6 +18,10 @@ MODULES = {
         "name":     "Jobs",
         "fragment": "jobs",
     },
+    "activities":{
+        "name":"Activities",
+        "fragments":"activities",
+    }
     # "timesheet": {
     #     "name":     "Timesheet",
     #     "fragment": "timesheets",

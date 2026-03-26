@@ -38,6 +38,10 @@ def _load_module_handler(module_key):
     if module_key == "job":
         from modules.job import decide_action, reset_state, ACTIONS, ACTION_KEYS
         return decide_action, reset_state, ACTIONS, ACTION_KEYS
+    if module_key == "activities":
+            from modules.activities import decide_action, reset_state, ACTIONS, ACTION_KEYS
+            return decide_action, reset_state, ACTIONS, ACTION_KEYS
+    
     # if module_key == "timesheet":
     #     from modules.timesheet import decide_action, reset_state, ACTIONS, ACTION_KEYS
     #     return decide_action, reset_state, ACTIONS, ACTION_KEYS
@@ -270,6 +274,9 @@ def _select_action(module_key, module_info):
  
     if action_key == "add_job" and len(extra_parts) == 2:
         goal = "add_job job {} | {}".format(extra_parts[0], extra_parts[1])
+    elif action_key == "add_activities" and len(extra_parts) == 3:
+        goal = "add_activities project {} | job {} | activities {}".format(
+            extra_parts[0], extra_parts[1], extra_parts[2])
     else:
         goal = "{} {}".format(action_key, module_key)
         if extra_parts:
