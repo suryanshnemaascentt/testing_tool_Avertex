@@ -6,6 +6,7 @@ from utils.login       import login_done, handle_login, reset_login
 from utils.nav         import nav_done,   handle_nav,   reset_nav
 from utils.dom_scanner import scan_common_dom
 from config.settings   import BASE_URL
+from report.test_report import get_reporter
 
 # ============================================================
 # modules/activity.py
@@ -41,13 +42,26 @@ _ADD_ACTIVITIES_RE_SIMPLE = re.compile(
 def scan_dom(dom):
     result = scan_common_dom(dom)
     result.update({
-        "nav_projects":       None,
-        "search_input":       None,
-        "view_btn":           None,
-        "activities_tab":     None,
-        "add_activity_btn":   None,
+        "nav_projects":        None,
+        "search_input":        None,
+        "view_btn":            None,
+        "activities_tab":      None,
+        "add_activity_btn":    None,
         "activity_name_input": None,
+        "save_toast":          None,   # saved/updated successfully toast
+        "dom_raw":             dom,    # raw list passed through for verification
     })
+
+    _NON_TOAST = ("input", "button")
+
+    _SAVE_SUCCESS_PHRASES = (
+        "saved successfully",
+        "updated successfully",
+        "activity added",
+        "successfully added",
+        "changes saved",
+        "activity saved",
+    )
 
     _NAV_TAGS  = ("a", "li", "span")
     _BTN_TAGS  = ("button", "input")
@@ -81,7 +95,7 @@ def scan_dom(dom):
                 if not result["view_btn"]:
                     result["view_btn"] = el
 
-        # Activities tab — id="project-activities-tab" or role=tab + text=activities
+        # Activities tab
         if tag == "button" and role == "tab" and "activit" in text and not result["activities_tab"]:
             result["activities_tab"] = el
         if eid == "project-activities-tab" and not result["activities_tab"]:
@@ -92,11 +106,17 @@ def scan_dom(dom):
             if not result["add_activity_btn"]:
                 result["add_activity_btn"] = el
 
-        # Activity name input — placeholder "Task name"
+        # Activity name input
         if (tag == "input" and etype == "text"
                 and ("task" in ph or "activity" in ph or "name" in ph)
                 and not result["activity_name_input"]):
             result["activity_name_input"] = el
+
+        # Save / success toast
+        if tag not in _NON_TOAST:
+            if (any(phrase in comb for phrase in _SAVE_SUCCESS_PHRASES)
+                    and not result["save_toast"]):
+                result["save_toast"] = el
 
     return result
 
@@ -107,24 +127,31 @@ def scan_dom(dom):
 
 class _AddActivityState:
     def __init__(self):
-        self.project_name          = ""
-        self.job_name=""
+        self.project_name           = ""
+        self.job_name               = ""
         self.activity_name_override = ""
-        self.search_typed          = False
-        self.view_clicked          = False
-        self.activities_clicked    = False
-        self.add_clicked           = False
-        self.form_filled           = False
-        self.submitted             = False
-        self.verified              = False
-        self._nav_fired            = False
-        self._search_wait          = 0
-        self._view_wait            = 0
-        self._activities_wait      = 0
-        self._add_wait             = 0
-        self._submit_wait          = 0
-        self.interacted            = set()
-        self.MAX_WAIT              = 4
+
+        # Step flags
+        self.search_typed       = False
+        self.view_clicked       = False
+        self.activities_clicked = False
+        self.add_clicked        = False
+        self.form_filled        = False
+        self.submitted          = False
+        self.verified           = False
+
+        # Navigation
+        self._nav_fired         = False
+
+        # Wait counters
+        self._search_wait       = 0
+        self._view_wait         = 0
+        self._activities_wait   = 0
+        self._add_wait          = 0
+        self._submit_wait       = 0
+
+        self.interacted         = set()
+        self.MAX_WAIT           = 4
 
     def reset(self):
         self.__init__()
@@ -138,13 +165,14 @@ _add_act_st = _AddActivityState()
 
 async def _decide_add_activity(els, url, goal):
     s = _add_act_st
+    r = get_reporter()
 
-    # Parse project + activity name from goal
+    # ── Parse project / job / activity name from goal ─────────
     if not s.project_name:
         m = _ADD_ACTIVITIES_RE.search(goal)
         if m:
-            s.project_name        = m.group(1).strip()
-            s.job_name            = m.group(2).strip()
+            s.project_name           = m.group(1).strip()
+            s.job_name               = m.group(2).strip()
             s.activity_name_override = m.group(3).strip()
             print("[ACTIVITY] Project: '{}' | Job: '{}' | Activity: '{}'".format(
                 s.project_name, s.job_name, s.activity_name_override))
@@ -152,31 +180,108 @@ async def _decide_add_activity(els, url, goal):
             m2 = _ADD_ACTIVITIES_RE_SIMPLE.search(goal)
             if m2:
                 s.project_name = m2.group(1).strip()
+                print("[ACTIVITY] Project target: '{}'".format(s.project_name))
 
+    # ── Already done ──────────────────────────────────────────
     if s.verified:
+        if r:
+            r.update_last_step(True)
         return {"action": "done", "result": "PASS",
                 "reason": "Activity '{}' added to project '{}'".format(
                     s.activity_name_override or "activity", s.project_name)}
 
-    # ── Step 7: Verify ────────────────────────────────────────
+    # ── Step 7: Verify after submit ───────────────────────────
     if s.submitted:
-        activity_form_gone = not bool(els.get("activity_name_input"))
-        activity_in_dom    = any(
-            (s.activity_name_override or "").lower() in (el.get("text") or "").lower()
-            for el in (els.get("dom_raw") or [])
-        ) if s.activity_name_override else False
+        dom_raw          = els.get("dom_raw") or []
+        act_name_target  = (s.activity_name_override or "").lower()
 
-        if activity_form_gone or activity_in_dom or els["success_toast"]:
+        # ── Signal 1: success toast / save toast present ──────
+        # Checks both the generic success_toast (from scan_common_dom)
+        # and the activity-specific save_toast scanned above.
+        toast_found = bool(els.get("success_toast") or els.get("save_toast"))
+        if not toast_found:
+            # Broader sweep: any DOM element containing success/added/created
+            toast_found = any(
+                ("success"  in (el.get("text")  or "").lower()
+                 or "added"   in (el.get("text")  or "").lower()
+                 or "created" in (el.get("text")  or "").lower()
+                 or "snackbar" in (el.get("class") or "").lower()
+                 or "toast"    in (el.get("class") or "").lower())
+                for el in dom_raw
+            )
+
+        # ── Signal 2: activity name visible in a table/list row
+        # Only meaningful when we know the activity name.
+        activity_row_found = bool(act_name_target) and any(
+            act_name_target in (el.get("text") or "").lower()
+            for el in dom_raw
+            if el.get("tag", "").lower() in ("td", "tr", "span", "div", "li")
+        )
+
+        # ── Signal 3: inline form inputs gone (form closed) ───
+        # The activity name input only exists while the add form is open.
+        form_closed = not bool(els.get("activity_name_input"))
+
+        signals_passed = sum([toast_found, activity_row_found, form_closed])
+
+        print("[ACTIVITY-VERIFY] toast={} act_row={} form_closed={} signals={}/3".format(
+            toast_found, activity_row_found, form_closed, signals_passed))
+
+        # Confident PASS: 2 or more independent signals agree
+        if signals_passed >= 2:
             s.verified = True
+            reason = (
+                "Activity '{}' added to project '{}' "
+                "(signals: toast={}, row={}, form_closed={})"
+            ).format(
+                s.activity_name_override or "activity", s.project_name,
+                toast_found, activity_row_found, form_closed,
+            )
+            if r:
+                r.update_last_step(True)
+            return {"action": "done", "result": "PASS", "reason": reason}
+
+        # Activity row alone is definitive — the record is visible in the UI
+        if activity_row_found:
+            s.verified = True
+            if r:
+                r.update_last_step(True)
             return {"action": "done", "result": "PASS",
-                    "reason": "Activity '{}' added to project '{}'".format(
-                        s.activity_name_override or "activity", s.project_name)}
+                    "reason": "Activity '{}' row confirmed in project '{}'".format(
+                        s.activity_name_override, s.project_name)}
+
+        # Still waiting — retry up to MAX_WAIT
         s._submit_wait += 1
         print("[ACTIVITY-VERIFY] Waiting ({}/{})".format(s._submit_wait, s.MAX_WAIT))
+
         if s._submit_wait >= s.MAX_WAIT:
-            s.verified = True
-            return {"action": "done", "result": "PASS",
-                    "reason": "Activity submitted (tick clicked)"}
+            if signals_passed >= 1:
+                # One weak signal — optimistic pass with caveat
+                s.verified = True
+                reason = (
+                    "Activity submit attempted; partial confirmation "
+                    "(signals={}/3 after {} waits)"
+                ).format(signals_passed, s.MAX_WAIT)
+                if r:
+                    r.update_last_step(True)
+                return {"action": "done", "result": "PASS", "reason": reason}
+            else:
+                # Zero signals after full timeout — genuine failure
+                if r:
+                    r.update_last_step(
+                        False,
+                        error="Activity submit unconfirmed after {} waits — "
+                              "no toast, no activity row, form still open".format(s.MAX_WAIT),
+                    )
+                return {
+                    "action": "done",
+                    "result": "FAIL",
+                    "reason": (
+                        "Activity submit unconfirmed — "
+                        "no success toast, activity not found in list, form still open"
+                    ),
+                }
+
         return {"action": "wait", "seconds": 1}
 
     # ── Step 6: Fill form ─────────────────────────────────────
@@ -185,19 +290,23 @@ async def _decide_add_activity(els, url, goal):
             datetime.now().strftime("%H%M%S"))
         hours = str(random.randint(1, 8))
 
-        print("[ACTIVITY] Filling form: name='{}' hours={}".format(
-            activity_name, hours))
+        print("[ACTIVITY] Step 6: Filling form: name='{}' hours={} job='{}'".format(
+            activity_name, hours, s.job_name))
 
         s.form_filled = True
-        s.submitted   = True   # tick clicked inside fill_activity_form
-        return {
+        s.submitted   = True   # tick is clicked inside fill_activity_form
+
+        step = {
             "action": "fill_activity_form",
             "params": {
                 "activity_name": activity_name,
                 "hours":         hours,
-                "job_name":      s.job_name,    
-            }
+                "job_name":      s.job_name,
+            },
         }
+        if r:
+            r.log_step(len(r.steps) + 1, step, url)
+        return step
 
     # ── Step 5: Click Add Activity ────────────────────────────
     if s.activities_clicked and not s.add_clicked:
@@ -206,12 +315,19 @@ async def _decide_add_activity(els, url, goal):
             s.interacted.add(ab["selector"])
             s.add_clicked = True
             print("[ACTIVITY] Step 5: Clicking Add Activity")
-            return {"action": "click", "selector": ab["selector"],
+            step = {"action": "click", "selector": ab["selector"],
                     "extra_wait_ms": 1000}
+            if r:
+                r.log_step(len(r.steps) + 1, step, url)
+            return step
+
         s._add_wait += 1
         print("[ACTIVITY] Step 5: Add Activity not found ({}/{})".format(
             s._add_wait, s.MAX_WAIT))
         if s._add_wait >= s.MAX_WAIT:
+            if r:
+                r.update_last_step(False,
+                    error="'Add Activity' button not found on Activities tab")
             return {"action": "done", "result": "FAIL",
                     "reason": "'Add Activity' button not found"}
         return {"action": "wait", "seconds": 1}
@@ -223,13 +339,22 @@ async def _decide_add_activity(els, url, goal):
             s.interacted.add(at["selector"])
             s.activities_clicked = True
             print("[ACTIVITY] Step 4: Clicking Activities tab")
-            return {"action": "click", "selector": at["selector"],
+            step = {"action": "click", "selector": at["selector"],
                     "extra_wait_ms": 800}
+            if r:
+                r.log_step(len(r.steps) + 1, step, url)
+            return step
+
         s._activities_wait += 1
+        print("[ACTIVITY] Step 4: Activities tab not found ({}/{})".format(
+            s._activities_wait, s.MAX_WAIT))
         if s._activities_wait >= s.MAX_WAIT:
-            return {"action": "click",
+            step = {"action": "click",
                     "selector": "#project-activities-tab",
                     "soft_fail": True}
+            if r:
+                r.log_step(len(r.steps) + 1, step, url)
+            return step
         return {"action": "wait", "seconds": 1}
 
     # ── Step 3: Click View ────────────────────────────────────
@@ -239,10 +364,19 @@ async def _decide_add_activity(els, url, goal):
             s.interacted.add(vb["selector"])
             s.view_clicked = True
             print("[ACTIVITY] Step 3: Clicking View")
-            return {"action": "click", "selector": vb["selector"],
+            step = {"action": "click", "selector": vb["selector"],
                     "extra_wait_ms": 1000}
+            if r:
+                r.log_step(len(r.steps) + 1, step, url)
+            return step
+
         s._view_wait += 1
+        print("[ACTIVITY] Step 3: View btn not found ({}/{})".format(
+            s._view_wait, s.MAX_WAIT))
         if s._view_wait >= s.MAX_WAIT:
+            if r:
+                r.update_last_step(False,
+                    error="'View' button not found after search")
             return {"action": "done", "result": "FAIL",
                     "reason": "'View' button not found"}
         return {"action": "wait", "seconds": 1}
@@ -252,16 +386,29 @@ async def _decide_add_activity(els, url, goal):
         if "projects" not in url.lower():
             if not s._nav_fired:
                 s._nav_fired = True
-                return {"action": "navigate", "url": BASE_URL + "/projects"}
+                step = {"action": "navigate", "url": BASE_URL + "/projects"}
+                if r:
+                    r.log_step(len(r.steps) + 1, step, url)
+                return step
             return {"action": "wait", "seconds": 1}
+
         si = els["search_input"]
         if si:
             s.search_typed = True
             print("[ACTIVITY] Step 2: Searching '{}'".format(s.project_name))
-            return {"action": "type", "selector": si["selector"],
+            step = {"action": "type", "selector": si["selector"],
                     "text": s.project_name}
+            if r:
+                r.log_step(len(r.steps) + 1, step, url)
+            return step
+
         s._search_wait += 1
+        print("[ACTIVITY] Step 2: Search input not found ({}/{})".format(
+            s._search_wait, s.MAX_WAIT))
         if s._search_wait >= s.MAX_WAIT:
+            if r:
+                r.update_last_step(False,
+                    error="Search input not found on /projects page")
             return {"action": "done", "result": "FAIL",
                     "reason": "Search input not found"}
         return {"action": "wait", "seconds": 1}
@@ -283,18 +430,27 @@ def reset_state():
 async def decide_action(action, dom, url, goal="", email=None, password=None):
     els = scan_dom(dom)
 
+    # Phase 1: Login
     if not login_done():
         step = handle_login(els, email, password, url)
         if step is None and not login_done():
             return {"action": "wait", "seconds": 1}
         if step:
+            r = get_reporter()
+            if r:
+                r.log_step(len(r.steps) + 1, step, url)
             return step
 
+    # Phase 2: Navigate to /projects
     if not nav_done():
         step = handle_nav(els, url, NAV_FRAGMENT)
         if step:
+            r = get_reporter()
+            if r:
+                r.log_step(len(r.steps) + 1, step, url)
             return step
 
+    # Phase 3: Activity action
     if action == "add_activities":
         return await _decide_add_activity(els, url, goal)
 

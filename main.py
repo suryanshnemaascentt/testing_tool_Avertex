@@ -76,7 +76,7 @@ async def run(url, module_key, action_key, goal,
       3. Executes that action via execute_step
     Stops when action == 'done' or MAX_STEPS is reached.
     """
-    reporter = TestReporter(goal=goal, url=url) if test_mode else None
+    reporter = TestReporter(goal=goal, url=url, email=email, password=password) if test_mode else None
     decide_action, reset_state, _, _ = _load_module_handler(module_key)
     reset_state()
 

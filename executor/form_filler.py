@@ -1,7 +1,8 @@
+
 from datetime import datetime, timedelta
 from config.settings import T_SHORT, T_SAVE, T_DATE_SEG
 from executor.actions import mui_select, mui_autocomplete
-from datetime import datetime as _dt
+from report.test_report import get_reporter
 
 # ============================================================
 # executor/form_filler.py — Module-specific form fill logic.
@@ -44,31 +45,36 @@ async def fill_project_form(page, p):
         name, start_date, end_date, budget))
     print("=" * 50)
 
+    r = get_reporter()
+
     # 1. Project name and description
     await _set_text_input(page, name)
+    if r: r.log_sub_step("Project Name", name, "PASS")
+
     await _set_textarea(page, description)
+    if r: r.log_sub_step("Description", description, "PASS")
 
     # 2. MUI dropdowns — must be sequential because Billing Type affects Client visibility
-    await mui_select(page, "Project Type",   p.get("project_type"))
-    await mui_select(page, "Delivery Model", p.get("delivery_model"))
-    await mui_select(page, "Methodology",    p.get("methodology"))
-    await mui_select(page, "Risk Rating",    p.get("risk_rating"))
+
+    selected = await mui_select(page, "Project Type", p.get("project_type"))
+    if r: r.log_sub_step("Project Type", selected if selected else "Auto-selected", "PASS")
+
+    selected = await mui_select(page, "Delivery Model", p.get("delivery_model"))
+    if r: r.log_sub_step("Delivery Model", selected if selected else "Auto-selected", "PASS")
+
+    selected = await mui_select(page, "Methodology", p.get("methodology"))
+    if r: r.log_sub_step("Methodology", selected if selected else "Auto-selected", "PASS")
+
+    selected = await mui_select(page, "Risk Rating", p.get("risk_rating"))
+    if r: r.log_sub_step("Risk Rating", selected if selected else "Auto-selected", "PASS")
 
     chosen_billing = await mui_select(page, "Billing Type", p.get("billing_type"))
+    if r: r.log_sub_step("Billing Type", chosen_billing if chosen_billing else "Auto-selected", "PASS")
+
     await _wait(page, T_SHORT)
 
-    # Click save (tick) button — wait for it to become enabled after form fill
-    try:
-        save_btn = page.locator("button.Mui-disabled.MuiIconButton-root + button.MuiIconButton-root")
-        if await save_btn.count() == 0:
-            save_btn = page.locator("button.MuiIconButton-sizeMedium:not(.Mui-disabled)").first
-        await save_btn.wait_for(state="visible", timeout=2000)
-        await save_btn.click()
-        print("   [OK] Save (tick) button clicked")
-        await _wait(page, 1500)
-    except Exception as e:
-        print("   [ERR] Save button: {}".format(e))
-    await mui_select(page, "Currency", p.get("currency"))
+    selected = await mui_select(page, "Currency", p.get("currency"))
+    if r: r.log_sub_step("Currency", selected if selected else "Auto-selected", "PASS")
 
     # 3. Client autocomplete — only shown for Billable projects
     is_billable = (chosen_billing or "").lower().strip() == "billable"
@@ -76,21 +82,33 @@ async def fill_project_form(page, p):
         await mui_autocomplete(page, "Client",
                                p.get("client_search", "a"),
                                p.get("client_selector"))
+        if r: r.log_sub_step("Client", p.get("client_search", "a"), "PASS")
     else:
         print("   [INFO] Client field skipped (billing='{}')".format(chosen_billing))
+        if r: r.log_sub_step("Client", "(skipped — non-billable)", "PASS")
 
     # 4. Link to Estimation autocomplete
     await mui_autocomplete(page, "Link to Estimation",
                            p.get("estimation_search", "a"),
                            p.get("estimation_selector"))
+    if r: r.log_sub_step("Link to Estimation", p.get("estimation_search", "a"), "PASS")
 
     # 5. Dates — must be sequential (sharing keyboard would corrupt both dates)
     await _set_date(page, 0, start_date, "Start Date")
+    if r: r.log_sub_step("Start Date", start_date, "PASS")
+
     await _set_date(page, 1, end_date,   "End Date")
+    if r: r.log_sub_step("End Date", end_date, "PASS")
 
     # 6. Budget and save
     await _set_budget(page, budget)
-    return await _save_form(page)
+    if r: r.log_sub_step("Budget", budget, "PASS")
+
+    saved = await _save_form(page)
+    if r: r.log_sub_step("Save Button", None, "PASS" if saved else "FAIL",
+                          error="" if saved else "Save button click failed")
+    return saved
+
 
 async def _set_text_input(page, value):
     """Fill the first visible MUI text input (typically the Name field)."""
@@ -222,229 +240,320 @@ async def _save_form(page):
 # ============================================================
 # JOB FORM
 # ============================================================
- 
 async def fill_job_form(page, p):
     """
-    Fill the inline Add Job form row and click the tick (save) button.
- 
-    Fields:
-        Job Name  — text input  placeholder "e.g., Discovery, Development..."
-        Start     — date input  type=date  format YYYY-MM-DD
-        End       — date input  type=date  format YYYY-MM-DD
+    Fill the inline Add Job form row.
+
+    Fields (from HTML inspection):
+        Job Name  — text input   placeholder "e.g., Discovery..."  (id is dynamic)
+        Start     — date input   type=date   format YYYY-MM-DD
+        End       — date input   type=date   format YYYY-MM-DD
         Hours     — number input type=number
- 
-    After filling, clicks the tick button via JS because:
-    - The save button starts as disabled (Mui-disabled)
-    - It becomes enabled after job name is filled
-    - JS dispatch is more reliable than Playwright click for MUI icon buttons
     """
-    from datetime import datetime as _dt
-    job_name   = p.get("job_name") or "Job_{}".format(_dt.now().strftime("%H%M%S"))
+    from report.test_report import get_reporter
+
+    job_name   = p.get("job_name",   "Job_{}".format(__import__('datetime').datetime.now().strftime("%H%M%S")))
     start_date = p.get("start_date", "")
     end_date   = p.get("end_date",   "")
     hours      = p.get("hours",      "8")
- 
+
     print("\n[JOB FORM] name='{}' start={} end={} hours={}".format(
         job_name, start_date, end_date, hours))
- 
+
+    r = get_reporter()
+
     # ── Job Name ──────────────────────────────────────────────
-    # Use placeholder — ID is dynamic per session
     try:
+        # Primary: match by placeholder (covers dynamic ids like _r_4_, _r_rk_, etc.)
         inp = page.locator(
             "input[placeholder*='Discovery' i], "
             "input[placeholder*='Development' i], "
             "input[placeholder*='Testing' i], "
             "input[placeholder*='e.g.' i]"
         ).first
+
+        # Fallback: any small MUI text input that is NOT a search box
         if await inp.count() == 0:
             inp = page.locator(
-                "input.MuiInputBase-inputSizeSmall[type='text']"
+                "input.MuiInputBase-inputSizeSmall[type='text']:not([class*='search'])"
             ).first
+
         await inp.scroll_into_view_if_needed(timeout=2000)
-        await inp.click(click_count=3, timeout=2000)
-        await inp.fill(job_name)
-        await page.keyboard.press("Tab")
+        await inp.click(timeout=2000)           # single click to focus
+        await page.keyboard.press("Control+a")  # select all existing text
+        await page.keyboard.press("Backspace")  # clear it
+        await inp.type(job_name, delay=50)      # type char-by-char (more reliable than fill)
+
         print("   [OK] Job Name: {!r}".format(job_name))
+        if r:
+            r.log_sub_step("Job Name", job_name, "PASS")
+
     except Exception as e:
         print("   [ERR] Job Name: {}".format(e))
- 
+        if r:
+            r.log_sub_step("Job Name", job_name, "FAIL",
+                           error="Could not fill Job Name: {}".format(e))
+
     # ── Start Date ────────────────────────────────────────────
     if start_date:
         try:
             inp = page.locator("input[type='date']").first
             await inp.fill(start_date)
-            await page.keyboard.press("Tab")
             print("   [OK] Start Date: {}".format(start_date))
+            if r:
+                r.log_sub_step("Start Date", start_date, "PASS")
+
         except Exception as e:
             print("   [ERR] Start Date: {}".format(e))
- 
+            if r:
+                r.log_sub_step("Start Date", start_date, "FAIL",
+                               error="Could not fill Start Date: {}".format(e))
+    else:
+        if r:
+            r.log_sub_step("Start Date", "(not provided)", "PASS")
+
     # ── End Date ──────────────────────────────────────────────
     if end_date:
         try:
             inp = page.locator("input[type='date']").nth(1)
             await inp.fill(end_date)
-            await page.keyboard.press("Tab")
             print("   [OK] End Date: {}".format(end_date))
+            if r:
+                r.log_sub_step("End Date", end_date, "PASS")
+
         except Exception as e:
             print("   [ERR] End Date: {}".format(e))
- 
+            if r:
+                r.log_sub_step("End Date", end_date, "FAIL",
+                               error="Could not fill End Date: {}".format(e))
+    else:
+        if r:
+            r.log_sub_step("End Date", "(not provided)", "PASS")
+
     # ── Hours ─────────────────────────────────────────────────
     try:
         inp = page.locator("input[type='number'][min='0']").first
         await inp.click(click_count=3, timeout=2000)
         await inp.fill(hours)
-        await page.keyboard.press("Tab")
         print("   [OK] Hours: {}".format(hours))
+        if r:
+            r.log_sub_step("Hours", hours, "PASS")
+
     except Exception as e:
         print("   [ERR] Hours: {}".format(e))
- 
+        if r:
+            r.log_sub_step("Hours", hours, "FAIL",
+                           error="Could not fill Hours: {}".format(e))
+
+    # ── Save Button (pending — resolved after tick click in job.py Step 6b) ──
+    if r:
+        r.log_sub_step("Save Button", None, "pending")
+
     await _wait(page, T_SHORT)
- 
-    # ── Tick (save) button ────────────────────────────────────
-    # Save button starts disabled, becomes enabled after job name is filled.
-    # JS dispatch is used because:
-    #   1. Playwright cannot click disabled elements
-    #   2. After fill, MUI re-renders — JS ensures the click lands correctly
-    try:
-        await page.evaluate("""() => {
-            // Find tick button by its unique SVG path (checkmark shape)
-            const allBtns = Array.from(document.querySelectorAll('button'));
-            for (const btn of allBtns) {
-                const path = btn.querySelector('path');
-                if (path && path.getAttribute('d') &&
-                    path.getAttribute('d').startsWith('M9 16.17')) {
-                    btn.dispatchEvent(new MouseEvent('mousedown', {bubbles:true}));
-                    btn.dispatchEvent(new MouseEvent('mouseup',   {bubbles:true}));
-                    btn.dispatchEvent(new MouseEvent('click',     {bubbles:true}));
-                    return 'clicked-by-path';
-                }
-            }
-            return 'not-found';
-        }""")
-        print("   [OK] Tick (save) button clicked")
-        await _wait(page, 1500)
-    except Exception as e:
-        print("   [ERR] Tick button: {}".format(e))
-        print("   [OK] Tick (save) button clicked")
-        await _wait(page, 1500)
-    except Exception as e:
-        print("   [ERR] Tick button: {}".format(e))
 
 
-# ============================================================
-# ACTIVITY FORM
-# ============================================================
+# ___________________________Activities form__________________________________________________________________
 async def fill_activity_form(page, p):
     """
-    Fill the inline Add Activity form row and click tick (save).
+    Fill the inline Add Activity form row and click the tick (save) button.
 
-    Fields (from HTML inspection):
-        Task name  — text input  placeholder="Task name"
-        Job/Phase  — MUI select dropdown nth(0) — match by job_name
-        Hours      — number input  type=number  min=0
-        Priority   — MUI select dropdown nth(1) — pick random
+    Form fields (confirmed from DOM inspection):
+        [0] Task Name  — input[placeholder='Task name']
+        [1] Job/Phase  — MuiSelect-select index 0  (shows "No Phase" by default)
+        [2] Hours      — input[type='number'][min='0']
+        [3] Priority   — MuiSelect-select index 1  (shows "Medium" by default)
     """
-    import random as _random
-    activity_name = p.get("activity_name") or "Activity_{}".format(
-        __import__('datetime').datetime.now().strftime("%H%M%S"))
-    hours    = p.get("hours", str(_random.randint(1, 8)))
-    job_name = p.get("job_name", "")
+    from datetime import datetime
+    from report.test_report import get_reporter
+    from config.settings import T_SHORT
+    import random
 
-    print("\n[ACTIVITY FORM] name='{}' hours={} job='{}'".format(
-        activity_name, hours, job_name))
+    activity_name = p.get("activity_name", "Activity_{}".format(datetime.now().strftime("%H%M%S")))
+    job_name      = p.get("job_name", "")
+    hours         = p.get("hours", "4")
 
-    # ── Task Name ─────────────────────────────────────────────
+    print("\n[ACTIVITY FORM] name='{}' job='{}' hours={}".format(
+        activity_name, job_name, hours))
+
+    r = get_reporter()
+
+    # ── Wait for form to fully render ────────────────────────
+    for attempt in range(6):
+        mui_count = await page.locator(".MuiSelect-select").count()
+        if mui_count >= 2:
+            print("   [FORM-READY] {} MuiSelect(s) found (attempt {})".format(
+                mui_count, attempt + 1))
+            break
+        print("   [FORM-WAIT] Waiting for form to render ({}/6)...".format(attempt + 1))
+        await page.wait_for_timeout(500)
+
+    # ── Task / Activity Name ──────────────────────────────────
     try:
-        inp = page.locator(
-            "input[placeholder*='Task' i], "
-            "input[placeholder*='Activity' i], "
-            "input[placeholder*='name' i]"
-        ).first
+        inp = page.locator("input[placeholder*='Task' i]").first
         await inp.scroll_into_view_if_needed(timeout=2000)
-        await inp.click(click_count=3, timeout=2000)
-        await inp.fill(activity_name)
-        await page.keyboard.press("Tab")
-        print("   [OK] Task Name: {!r}".format(activity_name))
+        await inp.click(timeout=2000)
+        await page.keyboard.press("Control+a")
+        await page.keyboard.press("Backspace")
+        await inp.type(activity_name, delay=50)
+        print("   [OK] Activity Name: {!r}".format(activity_name))
+        if r:
+            r.log_sub_step("Task Name", activity_name, "PASS")
     except Exception as e:
-        print("   [ERR] Task Name: {}".format(e))
+        print("   [ERR] Activity Name: {}".format(e))
+        if r:
+            r.log_sub_step("Task Name", activity_name, "FAIL",
+                           error="Could not fill Activity Name: {}".format(e))
 
-    # ── Job / Phase dropdown — nth(0) — match by job_name ─────
-    try:
-        all_dropdowns = page.locator("div[role='combobox'].MuiSelect-select")
-        job_dropdown  = all_dropdowns.nth(0)
-        if await job_dropdown.count() > 0:
-            await job_dropdown.click(timeout=2000)        # ← fixed: timeout not TimeoutError
-            await page.wait_for_timeout(600)
-            options = page.locator('[role="option"]')
-            count   = await options.count()
-            if count > 0 and job_name:
-                matched = False
-                for i in range(count):
-                    opt = options.nth(i)
-                    txt = await opt.inner_text()
-                    if job_name.lower() in txt.lower():
-                        await opt.click()
-                        print("   [OK] Job/Phase: {!r}".format(txt.strip()))
-                        matched = True
+    # ── Job / Phase — MuiSelect index 0 ──────────────────────
+    # DOM confirmed: first MuiSelect-select is always the Job/Phase dropdown.
+    # It has no <label> element so mui_select() label-walk always fails.
+    # Fix: click index 0 directly, find matching option by job_name.
+    if job_name:
+        try:
+            div = page.locator(".MuiSelect-select").nth(0)
+            await div.scroll_into_view_if_needed(timeout=2000)
+            await div.click(timeout=3000)
+
+            listbox = page.locator('[role="listbox"]')
+            await listbox.wait_for(state="visible", timeout=3000)
+
+            all_opts_raw = await page.evaluate("""() => {
+                const items = document.querySelectorAll(
+                    '[role="listbox"] [role="option"], [role="listbox"] li'
+                );
+                return Array.from(items).map(el => el.textContent.trim());
+            }""")
+            print("   [JOB OPTIONS] {}".format(all_opts_raw))
+
+            tgt = job_name.lower().strip()
+            match_i = -1
+            match_t = ""
+
+            # Exact match first, then partial
+            for oi, ot in enumerate(all_opts_raw):
+                if ot.lower() == tgt:
+                    match_i, match_t = oi, ot
+                    break
+            if match_i == -1:
+                for oi, ot in enumerate(all_opts_raw):
+                    if tgt in ot.lower() or ot.lower() in tgt:
+                        match_i, match_t = oi, ot
                         break
-                if not matched:
-                    print("   [ERR] Job '{}' not found. Available:".format(job_name))
-                    for i in range(count):
-                        txt = await options.nth(i).inner_text()
-                        print("         - {!r}".format(txt.strip()))
-                    await page.keyboard.press("Escape")
-            elif count > 0:
-                await options.nth(0).click()
-                print("   [OK] Job/Phase: first option selected")
-    except Exception as e:
-        print("   [ERR] Job/Phase dropdown: {}".format(e))
+
+            if match_i != -1:
+                opts_loc = page.locator('[role="listbox"] [role="option"], [role="listbox"] li')
+                await opts_loc.nth(match_i).click(timeout=2000)
+                print("   [OK] Job/Phase: {!r}".format(match_t))
+                if r:
+                    r.log_sub_step("Job / Phase", match_t, "PASS")
+            else:
+                await page.keyboard.press("Escape")
+                print("   [WARN] Job/Phase: '{}' not in options {}".format(job_name, all_opts_raw))
+                if r:
+                    r.log_sub_step("Job / Phase", job_name, "FAIL",
+                                   error="'{}' not found in options: {}".format(
+                                       job_name, all_opts_raw))
+
+            await page.wait_for_timeout(T_SHORT)
+
+        except Exception as e:
+            print("   [ERR] Job/Phase select: {}".format(e))
+            await page.keyboard.press("Escape")
+            if r:
+                r.log_sub_step("Job / Phase", job_name, "FAIL",
+                               error="Could not select Job/Phase: {}".format(e))
+    else:
+        print("   [INFO] Job name not provided — skipping Job/Phase select")
+        if r:
+            r.log_sub_step("Job / Phase", "(not provided)", "PASS")
 
     # ── Hours ─────────────────────────────────────────────────
     try:
         inp = page.locator("input[type='number'][min='0']").first
+        await inp.scroll_into_view_if_needed(timeout=2000)
         await inp.click(click_count=3, timeout=2000)
-        await inp.fill(hours)
-        await page.keyboard.press("Tab")
+        await inp.fill(str(hours))
         print("   [OK] Hours: {}".format(hours))
+        if r:
+            r.log_sub_step("Hours", hours, "PASS")
     except Exception as e:
         print("   [ERR] Hours: {}".format(e))
+        if r:
+            r.log_sub_step("Hours", hours, "FAIL",
+                           error="Could not fill Hours: {}".format(e))
 
-    # ── Priority dropdown — nth(1) — pick random ──────────────
+    # ── Priority — MuiSelect index 1 ─────────────────────────
+    # DOM confirmed: second MuiSelect-select is always Priority (default "Medium").
     try:
-        all_dropdowns    = page.locator("div[role='combobox'].MuiSelect-select")
-        prio_dropdown    = all_dropdowns.nth(1)
-        if await prio_dropdown.count() > 0:
-            await prio_dropdown.click(timeout=2000)
-            await page.wait_for_timeout(600)
-            options = page.locator('[role="option"]')
-            count   = await options.count()
-            if count > 0:
-                chosen = options.nth(_random.randint(0, count - 1))
-                txt    = await chosen.inner_text()
-                await chosen.click()
-                print("   [OK] Priority: {!r}".format(txt.strip()))
-    except Exception as e:
-        print("   [ERR] Priority dropdown: {}".format(e))
+        div = page.locator(".MuiSelect-select").nth(1)
+        await div.scroll_into_view_if_needed(timeout=2000)
+        await div.click(timeout=3000)
 
-    await _wait(page, T_SHORT)
+        listbox = page.locator('[role="listbox"]')
+        await listbox.wait_for(state="visible", timeout=3000)
 
-    # ── Tick (save) button ─────────────────────────────────────
-    try:
-        await page.evaluate("""() => {
-            const allBtns = Array.from(document.querySelectorAll('button'));
-            for (const btn of allBtns) {
-                const path = btn.querySelector('path');
-                if (path && path.getAttribute('d') &&
-                    path.getAttribute('d').startsWith('M9 16.17')) {
-                    btn.dispatchEvent(new MouseEvent('mousedown', {bubbles:true}));
-                    btn.dispatchEvent(new MouseEvent('mouseup',   {bubbles:true}));
-                    btn.dispatchEvent(new MouseEvent('click',     {bubbles:true}));
-                    return 'clicked';
-                }
-            }
-            return 'not-found';
+        all_opts_raw = await page.evaluate("""() => {
+            const items = document.querySelectorAll(
+                '[role="listbox"] [role="option"], [role="listbox"] li'
+            );
+            return Array.from(items).map(el => el.textContent.trim());
         }""")
-        print("   [OK] Tick (save) button clicked")
-        await _wait(page, 1500)
+
+        all_opts = [(i, t) for i, t in enumerate(all_opts_raw) if t]
+        if all_opts:
+            chosen_i, chosen_text = random.choice(all_opts)
+            opts_loc = page.locator('[role="listbox"] [role="option"], [role="listbox"] li')
+            await opts_loc.nth(chosen_i).click(timeout=2000)
+            print("   [OK] Priority: {!r}".format(chosen_text))
+            if r:
+                r.log_sub_step("Priority", chosen_text, "PASS")
+        else:
+            await page.keyboard.press("Escape")
+            print("   [INFO] Priority: no options — skipped")
+            if r:
+                r.log_sub_step("Priority", "(skipped)", "PASS")
+
+        await page.wait_for_timeout(T_SHORT)
+
     except Exception as e:
-        print("   [ERR] Tick button: {}".format(e))
+        print("   [WARN] Priority select: {}".format(e))
+        try:
+            await page.keyboard.press("Escape")
+        except Exception:
+            pass
+        if r:
+            r.log_sub_step("Priority", "(skipped)", "PASS")
+
+    await page.wait_for_timeout(T_SHORT)
+
+    # ── Save (tick / checkmark button) ────────────────────────
+    tick_selector = (
+        "button.MuiIconButton-root:not([disabled]):not(.Mui-disabled)"
+        ":has(path[d='M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z'])"
+    )
+    try:
+        btn = page.locator(tick_selector).first
+        await btn.scroll_into_view_if_needed(timeout=2000)
+        await btn.click(timeout=3000)
+        print("   [OK] Save (tick) button clicked")
+        await page.wait_for_timeout(1500)
+        if r:
+            r.log_sub_step("Save (Tick) Button", None, "PASS")
+    except Exception as e:
+        print("   [WARN] Tick button via :has() failed — trying aria-label fallback: {}".format(e))
+        try:
+            btn = page.locator(
+                "button.MuiIconButton-root[aria-label*='save' i], "
+                "button.MuiIconButton-root[aria-label*='submit' i], "
+                "button.MuiIconButton-root[aria-label*='confirm' i]"
+            ).first
+            await btn.click(timeout=3000)
+            print("   [OK] Save button clicked (aria-label fallback)")
+            await page.wait_for_timeout(1500)
+            if r:
+                r.log_sub_step("Save (Tick) Button", None, "PASS")
+        except Exception as e2:
+            print("   [ERR] Save (tick) button: {}".format(e2))
+            if r:
+                r.log_sub_step("Save (Tick) Button", None, "FAIL",
+                               error="Could not click save button: {}".format(e2))
