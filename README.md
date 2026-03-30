@@ -360,3 +360,15 @@ Set `HEADLESS = True` in `config/settings.py` to run without a visible browser w
 | `AVERTEX_BASE_URL` | `https://vertex-dev.savetime.com` | Override the target URL |
 | `AVERTEX_EMAIL` | `suryansh.nema@ascentt.com` | Default login email |
 | `AVERTEX_MAX_STEPS` | `60` | Override the step limit |
+
+
+
+<!-- _____________________________ -->
+
+project:- AutoProject_174314
+job :- Planning & Requirements
+Date:- 2026-03-23
+
+A063-FY26-Ascentt Internal-Testing Environment   
+
+

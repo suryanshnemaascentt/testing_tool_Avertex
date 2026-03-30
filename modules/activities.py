@@ -427,7 +427,7 @@ def reset_state():
     print("[STATE] Activity module reset")
 
 
-async def decide_action(action, dom, url, goal="", email=None, password=None):
+async def decide_action(action, dom, url, goal="", email=None, password=None,page=None):
     els = scan_dom(dom)
 
     # Phase 1: Login

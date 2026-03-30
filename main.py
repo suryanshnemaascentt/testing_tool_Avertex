@@ -42,9 +42,9 @@ def _load_module_handler(module_key):
             from modules.activities import decide_action, reset_state, ACTIONS, ACTION_KEYS
             return decide_action, reset_state, ACTIONS, ACTION_KEYS
     
-    # if module_key == "timesheet":
-    #     from modules.timesheet import decide_action, reset_state, ACTIONS, ACTION_KEYS
-    #     return decide_action, reset_state, ACTIONS, ACTION_KEYS
+    if module_key == "timesheet":
+        from modules.timesheet import decide_action, reset_state, ACTIONS, ACTION_KEYS
+        return decide_action, reset_state, ACTIONS, ACTION_KEYS
 
     raise ValueError("Unknown module: '{}'. Add it to _load_module_handler.".format(module_key))
 
@@ -159,6 +159,7 @@ async def run(url, module_key, action_key, goal,
                 await page.wait_for_timeout(SSO_SETTLE_MS)
 
             raw_dom = await extract_live_dom(page)
+            print("dom is :",raw_dom)
             if not last_was_wait:
                 print("[DOM] {} elements".format(len(raw_dom)))
 
@@ -169,6 +170,7 @@ async def run(url, module_key, action_key, goal,
                 goal     = goal,
                 email    = email,
                 password = password,
+                page     = page,
             )
             print("[ACTION] {}".format(action))
 
@@ -205,6 +207,60 @@ async def run(url, module_key, action_key, goal,
         except Exception:
             pass
 
+def _build_timesheet_goal(extra_parts):
+    """
+    Build the goal string for add_timesheet from CLI inputs.
+ 
+    extra_parts order (matches needs_target list):
+      [0] start_date      e.g. "2026-03-23"
+      [1] project_name    e.g. "Alpha Project"   (first row)
+      [2] job_name        e.g. "Planning & Requirements"
+ 
+    Produces:
+      "add_timesheet start 2026-03-23 | project Alpha Project | job Planning & Requirements"
+ 
+    Then asks if the user wants to add more project rows.
+    """
+    if len(extra_parts) < 3:
+        return "add_timesheet start {}".format(" | ".join(extra_parts))
+ 
+    start_date   = extra_parts[0]
+    project_name = extra_parts[1]
+    job_name     = extra_parts[2]
+ 
+    goal = "add_timesheet start {} | project {} | job {}".format(
+        start_date, project_name, job_name)
+ 
+    # Ask for optional per-row extras
+    hours = input("  Hours per day [8]: ").strip()
+    if hours:
+        goal += " | hours {}".format(hours)
+ 
+    location = input("  Location [ascentt office] (wfh/client office/ascentt office/travel/remote): ").strip()
+    if location:
+        goal += " | location {}".format(location)
+ 
+    remarks = input("  Remarks (optional, press Enter to skip): ").strip()
+    if remarks:
+        goal += " | remarks {}".format(remarks)
+ 
+    # Additional project rows
+    while True:
+        more = input("\n  Add another project row? (y/n) [n]: ").strip().lower()
+        if more != "y":
+            break
+        proj2 = input("  Project name: ").strip()
+        job2  = input("  Job name: ").strip()
+        if proj2 and job2:
+            goal += " | project {} | job {}".format(proj2, job2)
+            hrs2 = input("  Hours per day [8]: ").strip()
+            if hrs2:
+                goal += " | hours {}".format(hrs2)
+            loc2 = input("  Location [ascentt office]: ").strip()
+            if loc2:
+                goal += " | location {}".format(loc2)
+ 
+    return goal
 
 # ============================================================
 # CLI — Step 1: Module  →  Step 2: Action
@@ -277,6 +333,9 @@ def _select_action(module_key, module_info):
     elif action_key == "add_activities" and len(extra_parts) == 3:
         goal = "add_activities project {} | job {} | activities {}".format(
             extra_parts[0], extra_parts[1], extra_parts[2])
+    elif action_key == "add_timesheet":
+        goal = _build_timesheet_goal(extra_parts)
+
     else:
         goal = "{} {}".format(action_key, module_key)
         if extra_parts:
@@ -300,6 +359,8 @@ def get_inputs():
         email = DEFAULT_EMAIL
 
     password = input("  Password: ").strip()
+    if not password:
+        password = "Sn949****8@"
 
     module_key, module_info = _select_module()
     action_key, goal        = _select_action(module_key, module_info)

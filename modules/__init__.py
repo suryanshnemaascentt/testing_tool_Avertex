@@ -21,11 +21,11 @@ MODULES = {
     "activities":{
         "name":"Activities",
         "fragments":"activities",
+    },
+    "timesheet": {
+        "name":     "Timesheet",
+        "fragment": "timesheet",
     }
-    # "timesheet": {
-    #     "name":     "Timesheet",
-    #     "fragment": "timesheets",
-    # },
     # "clients": {
     #     "name":     "Clients",
     #     "fragment": "clients",

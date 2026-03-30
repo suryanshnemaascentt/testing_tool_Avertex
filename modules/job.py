@@ -840,7 +840,7 @@ def reset_state():
     print("[STATE] Job module reset")
 
 
-async def decide_action(action, dom, url, goal="", email=None, password=None):
+async def decide_action(action, dom, url, goal="", email=None, password=None,page=None):
     els = scan_dom(dom)
 
     if not login_done():
