@@ -818,7 +818,7 @@ def get_inputs():
 
     password = input("  Password: ").strip()
     if not password:
-        password = "Sn94948988@"
+        password = "*********"
 
     module_key, module_info = _select_module()
     action_key, goal        = _select_action(module_key, module_info)
