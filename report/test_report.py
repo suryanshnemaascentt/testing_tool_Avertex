@@ -699,13 +699,16 @@ def _build_html(report: dict) -> str:
           </table>
         </div>""".format(len(errors), err_rows)
 
-    total = len(visible_steps)
-    gfail = summary.get("steps_failed", 0)
-    errc  = summary.get("errors_count", 0)
+        # Count from visible_steps only so cards match the table
+    def _succ(s):
+        if s.get("action") in _FORM_ACTIONS:
+            return _form_step_success(s)
+        return s.get("success")
 
-    # Rule 2: Passed card = 9 when goal achieved, else actual count
-    # Passed card = actual passed step count
-    gpass = summary.get("steps_passed", 0)
+    total = len(visible_steps)
+    gpass = sum(1 for s in visible_steps if _succ(s) is True)
+    gfail = sum(1 for s in visible_steps if _succ(s) is False)
+    errc  = len(errors)
 
     return """<!DOCTYPE html>
 <html lang="en">
