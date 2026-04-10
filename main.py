@@ -1,3 +1,5 @@
+
+
 # import asyncio
 # from playwright.async_api import async_playwright
 
@@ -45,7 +47,9 @@
 #     if module_key == "timesheet":
 #         from modules.timesheet import decide_action, reset_state, ACTIONS, ACTION_KEYS
 #         return decide_action, reset_state, ACTIONS, ACTION_KEYS
-
+#     if module_key == "team":
+#       from modules.team import decide_action, reset_state, ACTIONS, ACTION_KEYS
+#       return decide_action, reset_state, ACTIONS, ACTION_KEYS
 #     raise ValueError("Unknown module: '{}'. Add it to _load_module_handler.".format(module_key))
 
 
@@ -274,6 +278,38 @@
 #     else:
 #         # No date given — module will default to current week
 #         return "clone_last_week"
+
+
+# # ── NEW ───────────────────────────────────────────────────────
+# def _build_approval_goal(extra_parts):
+#     """
+#     Build goal string for approve_timesheet.
+#     extra_parts order (matches needs_target list):
+#       [0] start_date    e.g. "2026-03-23"
+#       [1] project_name  e.g. "Alpha Corp"
+#       [2] requested_by  e.g. "John Doe"
+#       [3] action        e.g. "approve" or "reject"
+#     """
+#     start_date   = extra_parts[0].strip() if len(extra_parts) > 0 else datetime.now().strftime("%Y-%m-%d")
+#     project_name = extra_parts[1].strip() if len(extra_parts) > 1 else ""
+#     requested_by = extra_parts[2].strip() if len(extra_parts) > 2 else ""
+#     action       = extra_parts[3].strip().lower() if len(extra_parts) > 3 else "approve"
+
+#     if not start_date:
+#         from datetime import datetime
+#         start_date = datetime.now().strftime("%Y-%m-%d")
+
+#     parts = ["approve_timesheet",
+#              "start {}".format(start_date),
+#              "project {}".format(project_name)]
+#     if requested_by:
+#         parts.append("requested_by {}".format(requested_by))
+#     parts.append("action {}".format(action if action in ("approve", "reject") else "approve"))
+
+#     return " | ".join(parts)
+# # ── END NEW ───────────────────────────────────────────────────
+
+
 # # ============================================================
 # # CLI — Step 1: Module  →  Step 2: Action
 # # ============================================================
@@ -348,9 +384,9 @@
 #     elif action_key == "add_timesheet":
 #         goal = _build_timesheet_goal(extra_parts)
 #     elif action_key == "clone_last_week":
-
 #         goal = _build_clone_goal(extra_parts)
-
+#     elif action_key == "approve_timesheet":  # NEW
+#         goal = _build_approval_goal(extra_parts)  # NEW
 #     else:
 #         goal = "{} {}".format(action_key, module_key)
 #         if extra_parts:
@@ -375,7 +411,7 @@
 
 #     password = input("  Password: ").strip()
 #     if not password:
-#         password = "Sn94948988@"
+#         password = "*********"
 
 #     module_key, module_info = _select_module()
 #     action_key, goal        = _select_action(module_key, module_info)
@@ -407,8 +443,7 @@
 #             test_mode  = True,
 #         )
 #     )
-
-
+    
 import asyncio
 from playwright.async_api import async_playwright
 
@@ -445,21 +480,22 @@ def _load_module_handler(module_key):
         from modules.project import decide_action, reset_state, ACTIONS, ACTION_KEYS
         return decide_action, reset_state, ACTIONS, ACTION_KEYS
 
-    # ── Add new modules here ───────────────────────────────────
     if module_key == "job":
         from modules.job import decide_action, reset_state, ACTIONS, ACTION_KEYS
         return decide_action, reset_state, ACTIONS, ACTION_KEYS
+
     if module_key == "activities":
-            from modules.activities import decide_action, reset_state, ACTIONS, ACTION_KEYS
-            return decide_action, reset_state, ACTIONS, ACTION_KEYS
-    
+        from modules.activities import decide_action, reset_state, ACTIONS, ACTION_KEYS
+        return decide_action, reset_state, ACTIONS, ACTION_KEYS
+
     if module_key == "timesheet":
         from modules.timesheet import decide_action, reset_state, ACTIONS, ACTION_KEYS
         return decide_action, reset_state, ACTIONS, ACTION_KEYS
 
+    if module_key == "team":
+        from modules.team import decide_action, reset_state, ACTIONS, ACTION_KEYS
+        return decide_action, reset_state, ACTIONS, ACTION_KEYS
     raise ValueError("Unknown module: '{}'. Add it to _load_module_handler.".format(module_key))
-
-
 # ============================================================
 # PAGE ALIVE CHECK
 # ============================================================
@@ -501,7 +537,7 @@ async def run(url, module_key, action_key, goal,
             ignore_https_errors=True,
         )
         page = await context.new_page()
-        
+
         # Auto-accept browser native dialogs (window.confirm, window.alert).
         # The delete confirmation on this app uses window.confirm() —
         # without this handler Playwright would dismiss it automatically
@@ -509,7 +545,7 @@ async def run(url, module_key, action_key, goal,
         async def handle_dialog(dialog):
             print("[DIALOG] '{}' -> accepting".format(dialog.message))
             await dialog.accept()
- 
+
         page.on("dialog", handle_dialog)
 
         # Navigate with exponential back-off (up to 3 attempts)
@@ -570,7 +606,7 @@ async def run(url, module_key, action_key, goal,
                 await page.wait_for_timeout(SSO_SETTLE_MS)
 
             raw_dom = await extract_live_dom(page)
-            print("dom is :",raw_dom)
+            print("dom is :", raw_dom)
             if not last_was_wait:
                 print("[DOM] {} elements".format(len(raw_dom)))
 
@@ -618,44 +654,45 @@ async def run(url, module_key, action_key, goal,
         except Exception:
             pass
 
+
+# ============================================================
+# GOAL BUILDERS
+# ============================================================
+
 def _build_timesheet_goal(extra_parts):
     """
     Build the goal string for add_timesheet from CLI inputs.
- 
+
     extra_parts order (matches needs_target list):
       [0] start_date      e.g. "2026-03-23"
-      [1] project_name    e.g. "Alpha Project"   (first row)
+      [1] project_name    e.g. "Alpha Project"
       [2] job_name        e.g. "Planning & Requirements"
- 
+
     Produces:
       "add_timesheet start 2026-03-23 | project Alpha Project | job Planning & Requirements"
- 
-    Then asks if the user wants to add more project rows.
     """
     if len(extra_parts) < 3:
         return "add_timesheet start {}".format(" | ".join(extra_parts))
- 
+
     start_date   = extra_parts[0]
     project_name = extra_parts[1]
     job_name     = extra_parts[2]
- 
+
     goal = "add_timesheet start {} | project {} | job {}".format(
         start_date, project_name, job_name)
- 
-    # Ask for optional per-row extras
+
     hours = input("  Hours per day [8]: ").strip()
     if hours:
         goal += " | hours {}".format(hours)
- 
+
     location = input("  Location [ascentt office] (wfh/client office/ascentt office/travel/remote): ").strip()
     if location:
         goal += " | location {}".format(location)
- 
+
     remarks = input("  Remarks (optional, press Enter to skip): ").strip()
     if remarks:
         goal += " | remarks {}".format(remarks)
- 
-    # Additional project rows
+
     while True:
         more = input("\n  Add another project row? (y/n) [n]: ").strip().lower()
         if more != "y":
@@ -670,8 +707,9 @@ def _build_timesheet_goal(extra_parts):
             loc2 = input("  Location [ascentt office]: ").strip()
             if loc2:
                 goal += " | location {}".format(loc2)
- 
+
     return goal
+
 
 def _build_clone_goal(extra_parts):
     """
@@ -683,11 +721,9 @@ def _build_clone_goal(extra_parts):
     if start_date:
         return "clone_last_week start {}".format(start_date)
     else:
-        # No date given — module will default to current week
         return "clone_last_week"
 
 
-# ── NEW ───────────────────────────────────────────────────────
 def _build_approval_goal(extra_parts):
     """
     Build goal string for approve_timesheet.
@@ -697,24 +733,26 @@ def _build_approval_goal(extra_parts):
       [2] requested_by  e.g. "John Doe"
       [3] action        e.g. "approve" or "reject"
     """
+    from datetime import datetime
+
     start_date   = extra_parts[0].strip() if len(extra_parts) > 0 else datetime.now().strftime("%Y-%m-%d")
     project_name = extra_parts[1].strip() if len(extra_parts) > 1 else ""
     requested_by = extra_parts[2].strip() if len(extra_parts) > 2 else ""
     action       = extra_parts[3].strip().lower() if len(extra_parts) > 3 else "approve"
 
     if not start_date:
-        from datetime import datetime
         start_date = datetime.now().strftime("%Y-%m-%d")
 
-    parts = ["approve_timesheet",
-             "start {}".format(start_date),
-             "project {}".format(project_name)]
+    parts = [
+        "approve_timesheet",
+        "start {}".format(start_date),
+        "project {}".format(project_name),
+    ]
     if requested_by:
         parts.append("requested_by {}".format(requested_by))
     parts.append("action {}".format(action if action in ("approve", "reject") else "approve"))
 
     return " | ".join(parts)
-# ── END NEW ───────────────────────────────────────────────────
 
 
 # ============================================================
@@ -745,14 +783,14 @@ def _select_module():
 def _select_action(module_key, module_info):
     """Prompt the user to select an action for the chosen module."""
     _, _, ACTIONS, ACTION_KEYS = _load_module_handler(module_key)
- 
+
     print("\n" + "-" * 45)
     print("  {} — ACTION SELECT".format(module_info["name"].upper()))
     print("-" * 45)
     for i, key in enumerate(ACTION_KEYS, start=1):
         print("  {}  ->  {}".format(i, ACTIONS[key]["label"]))
     print("-" * 45)
- 
+
     while True:
         choice = input("  Select action (number or name): ").strip()
         action_key = None
@@ -762,44 +800,59 @@ def _select_action(module_key, module_info):
                 action_key = ACTION_KEYS[idx]
         elif choice.lower() in ACTIONS:
             action_key = choice.lower()
- 
+
         if action_key:
             break
         print("  [WARN] Invalid choice, please try again")
- 
-    # If the action needs one or more target inputs, prompt for each.
-    # needs_target can be:
-    #   True        — single prompt: "Enter <Module> name:"
-    #   ["a","b"]   — multiple prompts, one per label in the list
-    # The collected values are joined with " | " and appended to the goal.
+
+    # Collect target inputs based on needs_target
     extra_parts = []
     nt = ACTIONS[action_key]["needs_target"]
     if nt is True:
-        val = input("  Enter {} name: ".format(module_info["name"])).strip()
+        val = input("  Enter project name: ").strip()
         if val:
             extra_parts.append(val)
     elif isinstance(nt, list):
         for prompt_label in nt:
             val = input("  Enter {}: ".format(prompt_label)).strip()
             extra_parts.append(val)
- 
+
+    # Build goal string
     if action_key == "add_job" and len(extra_parts) == 2:
         goal = "add_job job {} | {}".format(extra_parts[0], extra_parts[1])
+
     elif action_key == "add_activities" and len(extra_parts) == 3:
         goal = "add_activities project {} | job {} | activities {}".format(
             extra_parts[0], extra_parts[1], extra_parts[2])
+
     elif action_key == "add_timesheet":
         goal = _build_timesheet_goal(extra_parts)
+
     elif action_key == "clone_last_week":
         goal = _build_clone_goal(extra_parts)
-    elif action_key == "approve_timesheet":  # NEW
-        goal = _build_approval_goal(extra_parts)  # NEW
-    else:
-        goal = "{} {}".format(action_key, module_key)
-        if extra_parts:
-            goal += " " + " | ".join(extra_parts)
-    
+
+    elif action_key == "approve_timesheet":
+        goal = _build_approval_goal(extra_parts)
+
+        
+    elif module_key == "team":
+        # Always prompt explicitly so project name is never empty or
+        # confused with the action keyword itself.
+        project = extra_parts[0] if (len(extra_parts) > 0 and extra_parts[0]) else ""
+        if not project:
+            project = input("  Enter project name: ").strip()
+ 
+        if action_key == "update":
+            member = input("  Enter employee name to update: ").strip()
+            goal = "update team {} | {}".format(project, member)
+        elif action_key == "delete":
+            member = input("  Enter employee name to delete: ").strip()
+            goal = "delete team {} | {}".format(project, member)
+        else:
+            goal = "{} team {}".format(action_key, project)
+
     return action_key, goal
+
 
 def get_inputs():
     """Collect all inputs from the user via CLI and return them."""
@@ -818,7 +871,7 @@ def get_inputs():
 
     password = input("  Password: ").strip()
     if not password:
-        password = "*********"
+        password = "Sn94948988@"
 
     module_key, module_info = _select_module()
     action_key, goal        = _select_action(module_key, module_info)
@@ -850,4 +903,3 @@ if __name__ == "__main__":
             test_mode  = True,
         )
     )
-    

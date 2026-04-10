@@ -25,11 +25,15 @@ MODULES = {
     "timesheet": {
         "name":     "Timesheet",
         "fragment": "timesheet",
-    }
+    },
     # "clients": {
     #     "name":     "Clients",
     #     "fragment": "clients",
     # },
+    "team": {
+      "name":     "Team",
+      "fragment": "projects",
+  },
 }
 
 MODULE_KEYS = list(MODULES.keys())

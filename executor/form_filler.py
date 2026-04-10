@@ -878,229 +878,344 @@ async def _pick_project_and_job(page, project_name: str, job_name: str,
         return project_ok, job_ok
 
 
-async def fill_timesheet_row_form(page, params: dict):
-    project_name = params.get("project_name", "")
-    job_name     = params.get("job_name", "")
-    hours        = str(params.get("hours", "8"))
-    location_raw = params.get("location", "ascentt office")
-    remarks      = params.get("remarks", "")
-    row_index    = int(params.get("row_index", 0))
-    location_opt = _norm_location(location_raw)
+# ============================================================
+# SECTION TO REPLACE IN executor/form_filler.py
+#
+# Replace the entire fill_team_member_form function AND add
+# delete_team_member directly after it.
+# ============================================================
 
-    print("\n" + "=" * 70)
-    print("[ROW {}] Project: {} | Job: {} | Hours: {} | Loc: {}".format(
-        row_index, project_name, job_name, hours, location_opt))
-    print("=" * 70)
 
-    # STEP 0: Add Row if not first
-    if row_index > 0:
-        print("[STEP 0] Clicking 'Add Row'...")
-        add_btns = await page.query_selector_all("button:has-text('Add Row')")
-        if add_btns:
-            await add_btns[0].scroll_into_view_if_needed()
-            await add_btns[0].click()
-            await page.wait_for_timeout(900)
-            print("[STEP 0] ✓")
-        else:
-            print("[STEP 0] ⚠ Not found")
+# ============================================================
+# TEAM MEMBER FORM  (add / update)
+# ============================================================
+# ============================================================
+# REPLACE fill_team_member_form in executor/form_filler.py
+# with this single function.
+#
+# Handles all three modes:
+#   mode='create' — select employee, fill all role fields, save
+#   mode='update' — find member row, click edit, change roles, save
+#   mode='delete' — find member row, click remove, confirm dialog
+#
+# No separate fill_delete_team_member_form needed.
+# ============================================================
 
-    # STEP 1+2: Project + Job in one tree
-    print("\n[STEP 1+2] Opening project/job tree...")
-    project_btns = await page.query_selector_all("#timesheet-project-select")
-    if not project_btns:
-        project_btns = await page.query_selector_all('button:has-text("Select Project")')
+async def fill_team_member_form(page, p):
+    """
+    Unified Team Member form handler.
 
-    if not project_btns:
-        print("[STEP 1+2] ✗ Project button not found")
-        return False
+    mode='create' (default): selects a random employee, fills all role fields.
+    mode='update'           : finds member_name row, clicks edit icon, changes roles.
+    mode='delete'           : finds member_name row, clicks remove button, confirms.
+    """
+    import random
+    try:
+        from report.test_reporter import get_reporter
+    except ImportError:
+        from report.test_report import get_reporter
+    from config.settings import T_SHORT
 
-    trigger = project_btns[-1]
-    await trigger.scroll_into_view_if_needed()
-    await trigger.click()
-    await page.wait_for_timeout(800)
+    mode        = p.get("mode", "create")
+    member_name = (p.get("member_name") or "").strip()
+    r           = get_reporter()
 
-    project_ok, job_ok = await _pick_project_and_job(
-        page, project_name, job_name, timeout=8000)
+    print("\n[TEAM FORM] mode={}  member='{}'".format(mode, member_name))
 
-    print("[STEP 1] {}".format("✓ OK" if project_ok else "✗ FAILED"))
-    print("[STEP 2] {}".format("✓ OK" if job_ok else "✗ FAILED"))
+    # ============================================================
+    # DELETE MODE
+    # ============================================================
+    if mode == "delete":
 
-    if not project_ok:
-        return False
+        # STEP 1: Search for the member
+        if member_name:
+            try:
+                search_box = page.locator(
+                    "input[placeholder*='Search team' i], "
+                    "input[placeholder*='Search member' i]"
+                )
+                if await search_box.count() > 0:
+                    await search_box.first.click()
+                    await search_box.first.fill(member_name)
+                    await page.wait_for_timeout(1000)
+                    print("   [OK] Searched for: '{}'".format(member_name))
+            except Exception as e:
+                print("   [WARN] Search box: {}".format(e))
 
-    await page.wait_for_timeout(1000)
-
-    # STEP 3: Hours
-    print("\n[STEP 3] Filling hours...")
-    all_inputs = await page.query_selector_all("#timesheet-hours-input")
-    if not all_inputs:
-        all_inputs = await page.query_selector_all(
-            "input[type='number'][min='0'][max='24']")
-
-    row_inputs = all_inputs[-_DAY_COLS:] if len(all_inputs) >= _DAY_COLS else all_inputs
-    print("[STEP 3] {} input(s)".format(len(row_inputs)))
-
-    day_names = ["Mon", "Tue", "Wed", "Thu", "Fri"]
-    hours_filled = 0
-    for i, inp in enumerate(row_inputs):
-        day = day_names[i] if i < len(day_names) else "Day{}".format(i + 1)
+        # STEP 2: Find matching row
+        target_row = None
         try:
-            if await inp.evaluate("el => el.disabled"):
-                print("   {} → ⏭ disabled".format(day))
-                continue
-            await inp.scroll_into_view_if_needed()
-            await inp.click()
-            await page.keyboard.press("Control+a")
-            await page.keyboard.press("Backspace")
-            await inp.type(hours, delay=50)
-            await page.wait_for_timeout(200)
-            print("   {} → {} hrs ✓".format(day, hours))
-            hours_filled += 1
+            rows  = page.locator("table tbody tr")
+            count = await rows.count()
+
+            if member_name:
+                for i in range(count):
+                    row  = rows.nth(i)
+                    text = await row.inner_text()
+                    if member_name.lower() in text.lower():
+                        target_row = row
+                        print("   [OK] Row found for: '{}'".format(member_name))
+                        break
+
+                if target_row is None:
+                    print("   [ERR] Member '{}' not found in {} rows".format(member_name, count))
+                    if r:
+                        r.log_sub_step("Find Row", member_name, "FAIL",
+                                       error="Member '{}' not found in table".format(member_name))
+                    return False
+            else:
+                if count > 0:
+                    target_row = rows.nth(0)
+                    print("   [WARN] No member name - using first row")
+                else:
+                    print("   [ERR] Team table is empty")
+                    if r:
+                        r.log_sub_step("Find Row", "(first)", "FAIL",
+                                       error="Team table is empty")
+                    return False
+
         except Exception as e:
-            print("   {} → ERROR: {}".format(day, e))
-
-    print("[STEP 3] {} day(s) filled".format(hours_filled))
-    await page.wait_for_timeout(400)
-
-   # ── STEP 4: Location — set ALL 5 day comboboxes ──────────
-    print("\n[STEP 4] Location: '{}'".format(location_opt))
-
-    async def _set_one_location_combo(cb):
-        """Open one combobox, deselect wrong, select right, close."""
-        try:
-            current = (await cb.inner_text()).strip()
-            # Already exactly correct (only target selected)
-            if current.strip().lower() == location_opt.lower():
-                print("   ✓ Already '{}'".format(current))
-                return True
-
-            await cb.scroll_into_view_if_needed()
-            await cb.click(force=True, timeout=4000)
-            await page.wait_for_timeout(500)
-
-            await page.wait_for_selector(
-                'ul[role="listbox"] li[role="option"]', timeout=2000)
-
-            options = await page.query_selector_all(
-                'ul[role="listbox"] li[role="option"]')
-
-            for opt in options:
-                opt_text = (await opt.inner_text()).strip()
-                cls = await opt.get_attribute("class") or ""
-                is_sel = "Mui-selected" in cls
-                is_target = opt_text.lower() == location_opt.lower()
-
-                if is_sel and not is_target:
-                    await opt.click()
-                    await page.wait_for_timeout(150)
-                    # Listbox may close — reopen
-                    still = await page.query_selector('ul[role="listbox"]')
-                    if not still:
-                        await cb.click(force=True, timeout=3000)
-                        await page.wait_for_timeout(400)
-                elif not is_sel and is_target:
-                    await opt.click()
-                    await page.wait_for_timeout(150)
-
-            await page.keyboard.press("Escape")
-            await page.wait_for_timeout(400)
-            # Wait for menu to close
-            for _ in range(10):
-                menu = await page.query_selector('[id^="menu-"]')
-                if not menu:
-                    break
-                await page.wait_for_timeout(150)
-            return True
-        except Exception as e:
-            print("   combo err: {}".format(e))
-            await page.keyboard.press("Escape")
-            await page.wait_for_timeout(300)
+            print("   [ERR] Row search: {}".format(e))
+            if r:
+                r.log_sub_step("Find Row", member_name, "FAIL", error=str(e))
             return False
 
-    set_count = 0
-    for attempt in range(8):  # up to 8 comboboxes (safety margin)
-        combos = await page.query_selector_all(
-            "div[role='combobox'].MuiSelect-select")
-        if not combos:
-            break
-
-        known = {"ascentt office", "wfh", "client office", "travel/remote",
-                 "travel", "remote"}
-        loc_combos = []
-        for cb in combos:
-            txt = (await cb.inner_text()).strip().lower()
-            if any(k in txt for k in known) or txt in known:
-                loc_combos.append(cb)
-
-        if not loc_combos:
-            loc_combos = combos  # fallback
-
-        print("[STEP 4] {} location combobox(es) visible".format(len(loc_combos)))
-
-        for cb in loc_combos:
-            ok = await _set_one_location_combo(cb)
-            if ok:
-                set_count += 1
-
-        # If all visible combos are now correct, stop
-        all_correct = True
-        combos_now = await page.query_selector_all(
-            "div[role='combobox'].MuiSelect-select")
-        for cb in combos_now:
-            txt = (await cb.inner_text()).strip().lower()
-            if any(k in txt for k in known) or txt in known:
-                if txt != location_opt.lower():
-                    all_correct = False
-                    break
-        if all_correct:
-            break
-
-        await page.wait_for_timeout(200)
-
-    print("[STEP 4] {} set → '{}'".format(set_count, location_opt))
-    await page.wait_for_timeout(500)
-
-    # ── STEP 5: Remarks — wait for popover to close first ──────
-    if remarks:
-        print("\n[STEP 5] Remarks: '{}'".format(remarks[:40]))
+        # STEP 3: Click Remove/Delete button in that row
+        clicked = False
         try:
-            # Wait for any open MUI Popover/Menu to fully close
-            await page.wait_for_function(
-                """() => {
-                    const popovers = document.querySelectorAll(
-                        '.MuiPopover-root, .MuiMenu-root, [id^="menu-"]');
-                    return popovers.length === 0 ||
-                           Array.from(popovers).every(p =>
-                               p.style.display === 'none' ||
-                               !document.body.contains(p));
-                }""",
-                timeout=4000
-            )
+            await target_row.scroll_into_view_if_needed(timeout=2000)
+
+            remove_btn = target_row.locator(
+                "button[aria-label*='remove' i], "
+                "button[aria-label*='delete' i], "
+                "button.MuiButton-outlinedError, "
+                "button.MuiButton-colorError, "
+                "button.MuiIconButton-colorError"
+            ).first
+
+            if await remove_btn.count() > 0:
+                await remove_btn.click(timeout=3000)
+                print("   [OK] Remove button clicked")
+                clicked = True
+            else:
+                btns = target_row.locator("button")
+                cnt  = await btns.count()
+                if cnt > 0:
+                    await btns.nth(cnt - 1).click(timeout=3000)
+                    print("   [OK] Remove button clicked (last button fallback)")
+                    clicked = True
+
+        except Exception as e:
+            print("   [ERR] Remove click: {}".format(e))
+            if r:
+                r.log_sub_step("Remove Button", member_name, "FAIL", error=str(e))
+            return False
+
+        if not clicked:
+            if r:
+                r.log_sub_step("Remove Button", member_name, "FAIL",
+                               error="No remove button found for '{}'".format(member_name))
+            return False
+
+        await page.wait_for_timeout(800)
+
+        # STEP 4: Confirm dialog if one appears
+        try:
+            confirm_btn = page.locator(
+                "button:has-text('Yes'), "
+                "button:has-text('Confirm'), "
+                "button:has-text('OK'), "
+                "button:has-text('Delete'), "
+                "button:has-text('Remove')"
+            ).first
+            await confirm_btn.wait_for(state="visible", timeout=2500)
+            await confirm_btn.click(timeout=3000)
+            print("   [OK] Confirm dialog dismissed")
         except Exception:
+            print("   [INFO] No confirm dialog (inline delete)")
+
+        await page.wait_for_timeout(1000)
+
+        if r:
+            r.log_sub_step("Delete Member", member_name or "(first row)", "PASS")
+
+        print("   [TEAM FORM] Delete complete")
+        return True
+
+    # ============================================================
+    # UPDATE MODE - find row, click edit, then fall through to
+    # role/save steps below
+    # ============================================================
+    if mode == "update" and member_name:
+        try:
+            print("   [UPDATE] Searching member: {}".format(member_name))
+
+            search_box = page.locator("input[placeholder*='Search team']")
+            if await search_box.count() > 0:
+                await search_box.first.click()
+                await search_box.first.fill(member_name)
+                await page.wait_for_timeout(1000)
+                if r:
+                    r.log_sub_step("Search Member", member_name, "PASS")
+
+            rows      = page.locator("table tbody tr")
+            row_found = False
+            count     = await rows.count()
+
+            for i in range(count):
+                row  = rows.nth(i)
+                text = await row.inner_text()
+                if member_name.lower() in text.lower():
+                    await row.scroll_into_view_if_needed(timeout=2000)
+                    edit_btn = row.locator("button:has(svg)").first
+                    await edit_btn.click(timeout=3000)
+                    print("   [OK] Edit clicked for: {}".format(member_name))
+                    if r:
+                        r.log_sub_step("Edit Button", member_name, "PASS")
+                    row_found = True
+                    break
+
+            if not row_found:
+                raise Exception("Member '{}' not found in table".format(member_name))
+
             await page.wait_for_timeout(1000)
 
-        try:
-            ta = await page.query_selector("#timesheet-remarks-input")
-            if not ta:
-                tas = await page.query_selector_all("textarea")
-                for t in tas:
-                    if await t.is_visible():
-                        ta = t
-                        break
-            if ta:
-                await ta.scroll_into_view_if_needed()
-                await page.wait_for_timeout(300)
-                # Use JavaScript click to bypass any overlay
-                await page.evaluate("el => el.click()", ta)
-                await page.wait_for_timeout(200)
-                await page.keyboard.press("Control+a")
-                await ta.type(remarks, delay=30)
-                print("[STEP 5] ✓")
-            else:
-                print("[STEP 5] ⚠ Textarea not found")
         except Exception as e:
-            print("[STEP 5] ERROR: {}".format(e))
+            print("   [ERR] Edit flow: {}".format(e))
+            if r:
+                r.log_sub_step("Edit Flow", member_name, "FAIL", error=str(e))
+            return False
+
+    # ============================================================
+    # CREATE / UPDATE - wait for dialog, then fill role fields
+    # ============================================================
+
+    for attempt in range(8):
+        count = await page.locator(".MuiSelect-select").count()
+        if count >= 1:
+            print("   [FORM-READY] {} MuiSelect(s) found".format(count))
+            break
+        await page.wait_for_timeout(500)
+
+    # STEP 1: Employee (create only)
+    if mode != "update":
+        try:
+            indicator = page.locator(
+                "button.MuiAutocomplete-popupIndicator, button[aria-label='Open']"
+            ).first
+            await indicator.click()
+            await page.wait_for_timeout(T_SHORT)
+
+            all_opts = page.locator('[role="option"]')
+            cnt      = await all_opts.count()
+            if cnt > 0:
+                idx = random.randint(0, cnt - 1)
+                txt = await all_opts.nth(idx).inner_text()
+                await all_opts.nth(idx).click()
+                if r:
+                    r.log_sub_step("Employee", txt.strip(), "PASS")
+
+        except Exception as e:
+            if r:
+                r.log_sub_step("Employee", "", "FAIL", error=str(e))
+    else:
+        if r:
+            r.log_sub_step("Employee", "(skipped - update)", "PASS")
 
     await page.wait_for_timeout(500)
-    print("\n[ROW {}] ✓ COMPLETE".format(row_index))
-    return True
+
+    # STEP 2: Project Role
+    try:
+        div  = page.locator(".MuiSelect-select").nth(0)
+        await div.click()
+        opts = page.locator('[role="listbox"] [role="option"], li')
+        cnt  = await opts.count()
+        if cnt > 0:
+            idx = random.randint(0, cnt - 1)
+            txt = await opts.nth(idx).inner_text()
+            await opts.nth(idx).click()
+            if r:
+                r.log_sub_step("Project Role", txt, "PASS")
+    except Exception as e:
+        if r:
+            r.log_sub_step("Project Role", "", "FAIL", error=str(e))
+
+    await page.wait_for_timeout(T_SHORT)
+
+    # STEP 3: Resource Role
+    try:
+        div  = page.locator(".MuiSelect-select").nth(1)
+        await div.click()
+        opts = page.locator('[role="listbox"] [role="option"], li')
+        cnt  = await opts.count()
+        if cnt > 0:
+            idx = random.randint(0, cnt - 1)
+            txt = await opts.nth(idx).inner_text()
+            await opts.nth(idx).click()
+            if r:
+                r.log_sub_step("Resource Role", txt, "PASS")
+    except Exception as e:
+        if r:
+            r.log_sub_step("Resource Role", "", "FAIL", error=str(e))
+
+    await page.wait_for_timeout(T_SHORT)
+
+    # STEP 4: Bandwidth Type
+    bandwidth_type_text = ""
+    try:
+        div  = page.locator(".MuiSelect-select").nth(2)
+        await div.click()
+        opts = page.locator('[role="listbox"] [role="option"], li')
+        cnt  = await opts.count()
+        if cnt > 0:
+            idx = random.randint(0, cnt - 1)
+            txt = await opts.nth(idx).inner_text()
+            bandwidth_type_text = txt.lower()
+            await opts.nth(idx).click()
+            if r:
+                r.log_sub_step("Bandwidth Type", txt, "PASS")
+    except Exception as e:
+        if r:
+            r.log_sub_step("Bandwidth Type", "", "FAIL", error=str(e))
+
+    await page.wait_for_timeout(T_SHORT)
+
+    # STEP 5: Bandwidth Value
+    try:
+        is_percent = "%" in bandwidth_type_text or "percent" in bandwidth_type_text
+        val = str(random.randint(80, 90) if is_percent else random.randint(4, 8))
+        inp = page.locator("input[type='number']").first
+        await inp.click(click_count=3)
+        await inp.fill(val)
+        if r:
+            r.log_sub_step("Bandwidth", val, "PASS")
+    except Exception as e:
+        if r:
+            r.log_sub_step("Bandwidth", "", "FAIL", error=str(e))
+
+    await page.wait_for_timeout(T_SHORT)
+
+    # STEP 6: Save (tick) - entire block inside try so return True always reached
+    try:
+        save_btn = page.locator(
+            "button:has(svg path[d='M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z'])"
+        )
+        if await save_btn.count() > 0:
+            await save_btn.first.click(timeout=3000)
+        else:
+            btn = page.locator("button.MuiIconButton-root:not([disabled])").last
+            await btn.click(timeout=3000)
+
+        print("   [OK] Save (tick) clicked")
+        if r:
+            r.log_sub_step("Save Button", "tick", "PASS")
+
+        await page.wait_for_timeout(1500)
+        print("   [TEAM FORM] Complete")
+        return True
+
+    except Exception as e:
+        print("   [ERR] Save click: {}".format(e))
+        if r:
+            r.log_sub_step("Save Button", None, "FAIL", error=str(e))
+        return False
