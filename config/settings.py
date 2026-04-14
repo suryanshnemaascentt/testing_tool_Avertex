@@ -9,7 +9,7 @@ import os
 # ============================================================
 
 # ── App ──────────────────────────────────────────────────────
-BASE_URL      = os.getenv("AVERTEX_BASE_URL", "https://orbis-dev.savetime.com/")
+BASE_URL      = os.getenv("AVERTEX_BASE_URL", "https://orbis-dev.savetime.com")
 MAX_STEPS     = int(os.getenv("AVERTEX_MAX_STEPS", "60"))
 DEFAULT_URL   = BASE_URL + "/"
 
