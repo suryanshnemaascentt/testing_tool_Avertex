@@ -216,7 +216,7 @@ class _TimesheetState:
         self._row_wait             = 0
         self._submit_wait          = 0
         self._tt_wait              = 0
-        self.MAX_WAIT              = 5
+        self.MAX_WAIT              = 3
 
     def reset(self):
         self.__init__()
@@ -655,7 +655,7 @@ async def _decide_add_timesheet(els, url, goal, page=None):
             "disabled" in (sb.get("class") or "").lower() and s._submit_wait > 0)
         url_changed = "my-timesheets" in url.lower()
         signals = sum([toast_found, submit_gone, url_changed])
-        print("[TS-VERIFY] toast={} gone={} url={} signals={}/3".format(
+        print("[TS-VERIFY] toast={} gone={} url={} signals={}".format(
             toast_found, submit_gone, url_changed, signals))
 
         if toast_found or submit_gone or signals >= 1:
