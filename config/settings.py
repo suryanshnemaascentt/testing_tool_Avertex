@@ -11,8 +11,11 @@ import os
 # ── App ──────────────────────────────────────────────────────
 BASE_URL      = os.getenv("AVERTEX_BASE_URL", "https://orbis-dev.savetime.com/")
 MAX_STEPS     = int(os.getenv("AVERTEX_MAX_STEPS", "60"))
-DEFAULT_EMAIL = os.getenv("AVERTEX_EMAIL", "suryansh.nema@ascentt.com")
 DEFAULT_URL   = BASE_URL + "/"
+
+# ── Credentials ──────────────────────────────────────────────
+LOGIN_EMAIL    = os.getenv("AVERTEX_EMAIL",    "suryansh.nema@ascentt.com")
+LOGIN_PASSWORD = os.getenv("AVERTEX_PASSWORD", "Sn94948988@")   # ← fill this
 
 # ── Timing constants (ms) ─────────────────────────────────────
 T_SHORT       =   80    # brief pause after a click
