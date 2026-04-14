@@ -469,7 +469,7 @@ class _DeleteState:
         self._verify_wait   = 0
         self._reverify_wait = 0
         self.interacted     = set()
-        self.MAX_WAIT       = 4
+        self.MAX_WAIT       = 1
 
     def reset(self):
         self.__init__()

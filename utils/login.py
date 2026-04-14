@@ -67,7 +67,7 @@ def handle_login(els, email, password, url):
                     _login.MAX_EMPTY_DOM))
                 _login.done = True
                 return None
-            return {"action": "wait", "seconds": 2}
+            return {"action": "wait", "seconds": 1}
         else:
             _login._empty_dom_count = 0  # DOM has content — reset counter
 
