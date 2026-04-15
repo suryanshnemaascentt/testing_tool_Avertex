@@ -10,7 +10,8 @@
 # Browser automation framework
 playwright>=1.40.0
 
-# Standard library only beyond this point —
-# no additional third-party packages required.
-#
-# json, os, re, asyncio, datetime — all built into Python 3.10+
+# Load credentials from .env file (backward compatible — env vars still work without .env)
+python-dotenv>=1.0.0
+
+# File locking to prevent race conditions when multiple users run simultaneously
+filelock>=3.13.0
