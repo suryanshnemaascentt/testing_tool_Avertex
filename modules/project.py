@@ -207,6 +207,30 @@ async def _decide_create(els, url):
             return {"action": "done", "result": "FAIL",
                     "reason": "Project already exists — not re-created"}
 
+        # Fail fast on any visible error/validation message
+        dom_raw = els.get("dom_raw") or []
+        error_found = any(
+            ("already exists"  in (el.get("text") or "").lower()
+             or "duplicate"    in (el.get("text") or "").lower()
+             or "already been" in (el.get("text") or "").lower()
+             or "invalid"      in (el.get("text") or "").lower())
+            for el in dom_raw
+            if el.get("tag", "").lower() not in ("input", "button")
+        )
+        if error_found:
+            err_text = next(
+                (el.get("text", "") for el in dom_raw
+                 if el.get("tag", "").lower() not in ("input", "button")
+                 and ("already exists" in (el.get("text") or "").lower()
+                      or "duplicate"   in (el.get("text") or "").lower()
+                      or "invalid"     in (el.get("text") or "").lower())),
+                "Validation error shown on form"
+            )
+            if r:
+                r.update_last_step(False, error=err_text)
+            return {"action": "done", "result": "FAIL",
+                    "reason": "Project '{}' was NOT created — {}".format(s.last_name, err_text)}
+
         # Method A: save/success toast
         if els["save_toast"] or els["success_toast"]:
             if r:
@@ -221,7 +245,7 @@ async def _decide_create(els, url):
         found = any(
             name_lower in (el.get("text") or "").lower() or
             name_lower in (el.get("label") or "").lower()
-            for el in (els.get("dom_raw") or [])
+            for el in dom_raw
         )
         if found and not form_still_open:
             if r:
@@ -231,11 +255,13 @@ async def _decide_create(els, url):
                     "reason": "Project '{}' created — visible in list".format(s.last_name)}
 
         s._verify_wait += 1
-        if s._verify_wait > s.MAX_WAIT:
+        if s._verify_wait >= s.MAX_WAIT:
             if r:
-                r.update_last_step(False, error="Could not verify project creation")
+                r.update_last_step(False, error="Project '{}' was NOT created — could not verify after {} waits".format(
+                    s.last_name, s.MAX_WAIT))
             return {"action": "done", "result": "FAIL",
-                    "reason": "Could not verify creation of '{}'".format(s.last_name)}
+                    "reason": "Project '{}' was NOT created — save was not confirmed (no toast, form still open)".format(
+                        s.last_name)}
         return {"action": "wait", "seconds": 1}
 
     # ── Fill form ─────────────────────────────────────────────
@@ -317,7 +343,7 @@ async def _decide_update(els, url, goal):
     # ── Verify after submit ───────────────────────────────────
    
     if s.submitted:
-         # ✅ NEW: URL-based verification
+        # URL-based verification — form closed means save succeeded
         if "/edit" not in url.lower():
             if r:
                 r.update_last_step(True)
@@ -334,6 +360,29 @@ async def _decide_update(els, url, goal):
             return {"action": "done", "result": "FAIL",
                     "reason": "Update failed — name already exists"}
 
+        # Fail fast on any visible error/validation message
+        dom_raw_u = els.get("dom_raw") or []
+        error_found_u = any(
+            ("already exists"  in (el.get("text") or "").lower()
+             or "duplicate"    in (el.get("text") or "").lower()
+             or "invalid"      in (el.get("text") or "").lower())
+            for el in dom_raw_u
+            if el.get("tag", "").lower() not in ("input", "button")
+        )
+        if error_found_u:
+            err_text_u = next(
+                (el.get("text", "") for el in dom_raw_u
+                 if el.get("tag", "").lower() not in ("input", "button")
+                 and ("already exists" in (el.get("text") or "").lower()
+                      or "duplicate"   in (el.get("text") or "").lower()
+                      or "invalid"     in (el.get("text") or "").lower())),
+                "Validation error shown on form"
+            )
+            if r:
+                r.update_last_step(False, error=err_text_u)
+            return {"action": "done", "result": "FAIL",
+                    "reason": "Project '{}' was NOT updated — {}".format(s.last_name, err_text_u)}
+
         # Method A: save/success toast
         if els["save_toast"] or els["success_toast"]:
             if r:
@@ -347,7 +396,7 @@ async def _decide_update(els, url, goal):
         name_lower      = s.last_name.lower()
         in_dom = any(
             name_lower in (el.get("text") or "").lower()
-            for el in (els.get("dom_raw") or [])
+            for el in dom_raw_u
         )
         if not form_still_open and in_dom:
             if r:
@@ -359,9 +408,11 @@ async def _decide_update(els, url, goal):
         s._verify_wait += 1
         if s._verify_wait >= s.MAX_WAIT:
             if r:
-                r.update_last_step(False, error="Form still open after save timeout")
+                r.update_last_step(False, error="Project '{}' was NOT updated — form still open after {} waits".format(
+                    s.last_name, s.MAX_WAIT))
             return {"action": "done", "result": "FAIL",
-                    "reason": "Form still open after save"}
+                    "reason": "Project '{}' was NOT updated — save was not confirmed (form still open)".format(
+                        s.last_name)}
         return {"action": "wait", "seconds": 1}
 
     # ── Fill update form ──────────────────────────────────────

@@ -547,8 +547,10 @@ class _AddJobState:
         self._form_wait    = 0
         self._submit_wait  = 0
 
+        self._dom_at_submit = 0   # DOM count snapshot when save was clicked
+
         self.interacted    = set()
-        self.MAX_WAIT      = 4
+        self.MAX_WAIT      = 2
 
     def reset(self):
         self.__init__()
@@ -593,7 +595,6 @@ async def _decide_add_job(els, url, goal):
         job_name_target   = (s.job_name_override or "").lower()
 
         # ── Signal 1: success toast / snackbar present ────────
-        # Checks for any DOM element that looks like a success notification.
         toast_found = any(
             ("success" in (el.get("text")  or "").lower()
              or "success" in (el.get("class") or "").lower()
@@ -605,82 +606,91 @@ async def _decide_add_job(els, url, goal):
         )
 
         # ── Signal 2: job name now appears in a table/list row ─
-        # Only meaningful when we actually know the job name.
         job_row_found = bool(job_name_target) and any(
             job_name_target in (el.get("text") or "").lower()
             for el in dom_raw
             if el.get("tag", "").lower() in ("td", "tr", "span", "div", "li")
         )
 
-        # ── Signal 3: form inputs gone (inline form closed) ───
-        # Date/number inputs only exist while the add-job form is open.
-        form_inputs_present = any(
-            el.get("type", "").lower() in ("date", "number")
-            or (el.get("type", "").lower() == "text"
-                and el.get("tag", "").lower() == "input")
-            for el in dom_raw
+        # ── Signal 3: DOM count dropped significantly since save ─
+        # The inline job form adds ~6 elements when open.
+        # A drop of >= 4 from the DOM count at save time means the
+        # form closed — which only happens on a successful save.
+        form_closed = (
+            s._dom_at_submit > 0
+            and current_dom_count <= s._dom_at_submit - 4
         )
-        form_closed = not form_inputs_present
 
-        signals_passed = sum([toast_found, job_row_found, form_closed])
+        # ── Error signal: duplicate / validation error visible ──
+        error_found = any(
+            ("already exists"  in (el.get("text") or "").lower()
+             or "duplicate"    in (el.get("text") or "").lower()
+             or "already been" in (el.get("text") or "").lower()
+             or "error"        in (el.get("class") or "").lower()
+             or "invalid"      in (el.get("text") or "").lower())
+            for el in dom_raw
+            if el.get("tag", "").lower() not in ("input", "button")
+        )
 
-        print("[JOB-VERIFY] toast={} job_row={} form_closed={} signals={}/3 dom={}".format(
-            toast_found, job_row_found, form_closed, signals_passed, current_dom_count))
+        print("[JOB-VERIFY] toast={} job_row={} form_closed={} error={} (dom {} -> {})".format(
+            toast_found, job_row_found, form_closed, error_found,
+            s._dom_at_submit, current_dom_count))
 
-        # Confident PASS: at least 2 of 3 independent signals confirm success
-        if signals_passed >= 2:
+        # Immediate FAIL if an error/duplicate message is visible
+        if error_found:
             s.verified = True
-            reason = (
-                "Job '{}' added to project '{}' "
-                "(signals: toast={}, row={}, form_closed={})"
-            ).format(
-                s.job_name_override or "job", s.project_name,
-                toast_found, job_row_found, form_closed,
+            err_text = next(
+                (el.get("text", "") for el in dom_raw
+                 if el.get("tag", "").lower() not in ("input", "button")
+                 and ("already exists" in (el.get("text") or "").lower()
+                      or "duplicate"   in (el.get("text") or "").lower()
+                      or "already been" in (el.get("text") or "").lower())),
+                "Validation error shown on form"
             )
             if r:
-                r.update_last_step(True)
-            return {"action": "done", "result": "PASS", "reason": reason}
+                r.update_last_step(False, error=err_text)
+            return {"action": "done", "result": "FAIL",
+                    "reason": "Job '{}' was NOT created — {}".format(
+                        s.job_name_override or "job", err_text)}
 
-        # Job row visible alone is definitive — the record is in the UI
-        if job_row_found:
+        # DOM reduction alone is definitive — form can only close on success
+        if form_closed:
             s.verified = True
             if r:
                 r.update_last_step(True)
             return {"action": "done", "result": "PASS",
-                    "reason": "Job '{}' row confirmed in project '{}'".format(
-                        s.job_name_override or "job", s.project_name)}
+                    "reason": "Job '{}' saved to project '{}' (form closed, dom {} -> {})".format(
+                        s.job_name_override or "job", s.project_name,
+                        s._dom_at_submit, current_dom_count)}
 
-        # Still waiting — increment and retry up to MAX_WAIT
+        # Toast or row visible — also definitive
+        if toast_found or job_row_found:
+            s.verified = True
+            if r:
+                r.update_last_step(True)
+            return {"action": "done", "result": "PASS",
+                    "reason": "Job '{}' added to project '{}' (toast={}, row={})".format(
+                        s.job_name_override or "job", s.project_name,
+                        toast_found, job_row_found)}
+
+        # Nothing confirmed yet — wait up to MAX_WAIT (2) times then FAIL
         s._submit_wait += 1
         print("[JOB-VERIFY] Waiting ({}/{})".format(s._submit_wait, s.MAX_WAIT))
 
         if s._submit_wait >= s.MAX_WAIT:
-            if signals_passed >= 1:
-                # At least one weak signal — optimistic pass with caveat
-                s.verified = True
-                reason = (
-                    "Job submit attempted; partial confirmation "
-                    "(signals={}/3 after {} waits)"
-                ).format(signals_passed, s.MAX_WAIT)
-                if r:
-                    r.update_last_step(True)
-                return {"action": "done", "result": "PASS", "reason": reason}
-            else:
-                # Zero signals after full timeout — genuine failure
-                if r:
-                    r.update_last_step(
-                        False,
-                        error="Job submit unconfirmed after {} waits — "
-                              "no toast, no job row, form still open".format(s.MAX_WAIT),
-                    )
-                return {
-                    "action": "done",
-                    "result": "FAIL",
-                    "reason": (
-                        "Job submit unconfirmed — "
-                        "no success toast, job not found in list, form still open"
-                    ),
-                }
+            # No confirmation signal after full wait — job was NOT created
+            s.verified = True
+            if r:
+                r.update_last_step(
+                    False,
+                    error="No success confirmation received after {} waits — "
+                          "job was not created (dom {} -> {})".format(
+                              s.MAX_WAIT, s._dom_at_submit, current_dom_count),
+                )
+            return {"action": "done", "result": "FAIL",
+                    "reason": "Job '{}' was NOT created in project '{}' — "
+                              "save was not confirmed (no toast, no row, form did not close)".format(
+                                  s.job_name_override or "job", s.project_name)}
 
         return {"action": "wait", "seconds": 1}
 
@@ -688,6 +698,7 @@ async def _decide_add_job(els, url, goal):
     if s.form_filled and not s.submitted:
         print("[JOB] Step 6b: Clicking save (tick) button")
         s.submitted = True
+        s._dom_at_submit = len(els.get("dom_raw") or [])
         step = {
             # Use :has() to match the button CONTAINING the checkmark path —
             # clicking the button element itself is reliable; clicking the
@@ -840,9 +851,10 @@ def reset_state():
     print("[STATE] Job module reset")
 
 
-async def decide_action(action, dom, url, goal="", email=None, password=None,page=None):
+async def decide_action(action, dom, url, goal="", email=None, password=None, page=None):
     els = scan_dom(dom)
 
+    # Phase 1: Login
     if not login_done():
         step = handle_login(els, email, password, url)
         if step is None and not login_done():
@@ -853,6 +865,7 @@ async def decide_action(action, dom, url, goal="", email=None, password=None,pag
                 r.log_step(len(r.steps) + 1, step, url)
             return step
 
+    # Phase 2: Navigate to /projects
     if not nav_done():
         step = handle_nav(els, url, NAV_FRAGMENT)
         if step:
@@ -861,6 +874,7 @@ async def decide_action(action, dom, url, goal="", email=None, password=None,pag
                 r.log_step(len(r.steps) + 1, step, url)
             return step
 
+    # Phase 3: Job action
     if action == "add_job":
         return await _decide_add_job(els, url, goal)
 

@@ -283,7 +283,7 @@ def _build_timesheet_goal(extra_parts):
 
     hours = input("  Hours per day [8]: ").strip()
     if hours:
-        goal += " | logging hours {}".format(hours)
+        goal += " | hours {}".format(hours)
 
     location = input("  Location [ascentt office] (wfh/client office/ascentt office/travel/remote): ").strip()
     if location:

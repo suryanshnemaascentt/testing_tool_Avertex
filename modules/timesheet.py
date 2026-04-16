@@ -645,9 +645,9 @@ async def _decide_add_timesheet(els, url, goal, page=None):
 
         toast_found = bool(els.get("success_toast")) or any(
             ("submitted" in (el.get("text") or "").lower()
-             or "success" in (el.get("text") or "").lower()
+             or "success"  in (el.get("text") or "").lower()
              or "snackbar" in (el.get("class") or "").lower()
-             or "toast"   in (el.get("class") or "").lower())
+             or "toast"    in (el.get("class") or "").lower())
             for el in dom_raw
         )
         sb = els.get("submit_btn")
@@ -658,16 +658,37 @@ async def _decide_add_timesheet(els, url, goal, page=None):
         print("[TS-VERIFY] toast={} gone={} url={} signals={}".format(
             toast_found, submit_gone, url_changed, signals))
 
-        if toast_found or submit_gone or signals >= 1:
+        # URL change or toast alone is definitive
+        if url_changed or toast_found:
             s.verified = True
             if r: r.update_last_step(True)
             return {"action": "done", "result": "PASS",
-                    "reason": "Submitted (signals={}/3)".format(signals)}
+                    "reason": "Timesheet submitted for week of {} (signals={}/3)".format(
+                        s.monday.strftime("%b %d, %Y"), signals)}
+
+        # Submit button completely absent from DOM — only happens after a
+        # successful submission + Continue confirmation. This is definitive.
+        if sb is None:
+            s.verified = True
+            if r: r.update_last_step(True)
+            return {"action": "done", "result": "PASS",
+                    "reason": "Timesheet submitted for week of {} (submit button gone from DOM)".format(
+                        s.monday.strftime("%b %d, %Y"))}
+
+        # Submit button disabled + at least one other signal
+        if submit_gone and signals >= 2:
+            s.verified = True
+            if r: r.update_last_step(True)
+            return {"action": "done", "result": "PASS",
+                    "reason": "Timesheet submitted for week of {} (signals={}/3)".format(
+                        s.monday.strftime("%b %d, %Y"), signals)}
 
         s._submit_wait += 1
         if s._submit_wait >= s.MAX_WAIT:
-            if r: r.update_last_step(False, error="Submit unconfirmed")
-            return {"action": "done", "result": "FAIL", "reason": "Submit unconfirmed"}
+            if r: r.update_last_step(False, error="Timesheet was NOT submitted — no confirmation received after {} waits".format(s.MAX_WAIT))
+            return {"action": "done", "result": "FAIL",
+                    "reason": "Timesheet for week of {} was NOT submitted — save was not confirmed (no toast, no URL change)".format(
+                        s.monday.strftime("%b %d, %Y"))}
         return {"action": "wait", "seconds": 1}
 
     if s.rows and all(st == "done" for st in s.row_states) and not s.submitted:
@@ -1477,20 +1498,25 @@ def reset_state():
 async def decide_action(action, dom, url, goal="", email=None,
                         password=None, page=None):
     els = scan_dom(dom)
-    r   = get_reporter()
 
+    # Phase 1: Login
     if not login_done():
         step = handle_login(els, email, password, url)
         if step is None and not login_done():
             return {"action": "wait", "seconds": 1}
         if step:
-            if r: r.log_step(len(r.steps) + 1, step, url)
+            r = get_reporter()
+            if r:
+                r.log_step(len(r.steps) + 1, step, url)
             return step
+
+    r = get_reporter()
 
     s = (_clone_st    if action == "clone_last_week"    else
          _approval_st if action == "approve_timesheet"  else
          _ts_st)
 
+    # Phase 2: Navigate to /timesheet
     if not s.time_tracking_clicked and NAV_FRAGMENT not in url.lower():
         tt = els.get("nav_time_tracking")
         if tt:
@@ -1501,7 +1527,8 @@ async def decide_action(action, dom, url, goal="", email=None,
                 "selector":      (tt.get("selector") or "#nav-item-time-tracking"),
                 "extra_wait_ms": 1200,
             }
-            if r: r.log_step(len(r.steps) + 1, step, url)
+            if r:
+                r.log_step(len(r.steps) + 1, step, url)
             return step
 
         s._tt_wait += 1
@@ -1514,9 +1541,11 @@ async def decide_action(action, dom, url, goal="", email=None,
     if not nav_done():
         step = handle_nav(els, url, NAV_FRAGMENT)
         if step:
-            if r: r.log_step(len(r.steps) + 1, step, url)
+            if r:
+                r.log_step(len(r.steps) + 1, step, url)
             return step
 
+    # Phase 3: Timesheet action
     if action == "clone_last_week":
         return await _decide_clone_last_week(els, url, goal, page=page)
 
