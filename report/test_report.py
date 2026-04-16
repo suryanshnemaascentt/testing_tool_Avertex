@@ -326,9 +326,17 @@ class TestReporter:
             if s.get("action") == "done" and s.get("success") is None:
                 s["success"] = (result == "PASS")
 
-        # Resolve form step success from their sub-steps
+        # Flush any remaining pending sub-steps on form steps,
+        # then re-derive the step's success from the final result.
+        # This handles cases where the save click is a separate step
+        # (e.g. fill_job_form fields are PASS but "Save (Tick) Button"
+        # sub-step was never explicitly logged — it stays pending).
+        sub_status = "PASS" if result == "PASS" else "FAIL"
         for s in self.steps:
             if s.get("action") in _FORM_ACTIONS:
+                for sub in s.get("sub_steps", []):
+                    if sub.get("status") == "pending":
+                        sub["status"] = sub_status
                 s["success"] = _form_step_success(s)
 
         _set_reporter(None)

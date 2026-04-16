@@ -196,13 +196,10 @@ async def _decide_add_activity(els, url, goal):
         act_name_target  = (s.activity_name_override or "").lower()
 
         # ── Signal 1: success toast / save toast present ──────
-        # Checks both the generic success_toast (from scan_common_dom)
-        # and the activity-specific save_toast scanned above.
         toast_found = bool(els.get("success_toast") or els.get("save_toast"))
         if not toast_found:
-            # Broader sweep: any DOM element containing success/added/created
             toast_found = any(
-                ("success"  in (el.get("text")  or "").lower()
+                ("success"   in (el.get("text")  or "").lower()
                  or "added"   in (el.get("text")  or "").lower()
                  or "created" in (el.get("text")  or "").lower()
                  or "snackbar" in (el.get("class") or "").lower()
@@ -210,8 +207,7 @@ async def _decide_add_activity(els, url, goal):
                 for el in dom_raw
             )
 
-        # ── Signal 2: activity name visible in a table/list row
-        # Only meaningful when we know the activity name.
+        # ── Signal 2: activity name visible in a table/list row ─
         activity_row_found = bool(act_name_target) and any(
             act_name_target in (el.get("text") or "").lower()
             for el in dom_raw
@@ -219,68 +215,82 @@ async def _decide_add_activity(els, url, goal):
         )
 
         # ── Signal 3: inline form inputs gone (form closed) ───
-        # The activity name input only exists while the add form is open.
         form_closed = not bool(els.get("activity_name_input"))
 
-        signals_passed = sum([toast_found, activity_row_found, form_closed])
+        # ── Error signal: duplicate / validation error visible ──
+        error_found = any(
+            ("already exists"  in (el.get("text") or "").lower()
+             or "duplicate"    in (el.get("text") or "").lower()
+             or "already been" in (el.get("text") or "").lower()
+             or "error"        in (el.get("class") or "").lower()
+             or "invalid"      in (el.get("text") or "").lower())
+            for el in dom_raw
+            if el.get("tag", "").lower() not in ("input", "button")
+        )
 
-        print("[ACTIVITY-VERIFY] toast={} act_row={} form_closed={} signals={}/3".format(
-            toast_found, activity_row_found, form_closed, signals_passed))
+        print("[ACTIVITY-VERIFY] toast={} act_row={} form_closed={} error={}".format(
+            toast_found, activity_row_found, form_closed, error_found))
 
-        # Confident PASS: 2 or more independent signals agree
-        if signals_passed >= 2:
+        # Immediate FAIL if an error/duplicate message is visible
+        if error_found:
             s.verified = True
-            reason = (
-                "Activity '{}' added to project '{}' "
-                "(signals: toast={}, row={}, form_closed={})"
-            ).format(
-                s.activity_name_override or "activity", s.project_name,
-                toast_found, activity_row_found, form_closed,
+            err_text = next(
+                (el.get("text", "") for el in dom_raw
+                 if el.get("tag", "").lower() not in ("input", "button")
+                 and ("already exists" in (el.get("text") or "").lower()
+                      or "duplicate"    in (el.get("text") or "").lower()
+                      or "already been" in (el.get("text") or "").lower())),
+                "Validation error shown on form"
             )
             if r:
-                r.update_last_step(True)
-            return {"action": "done", "result": "PASS", "reason": reason}
+                r.update_last_step(False, error=err_text)
+            return {"action": "done", "result": "FAIL",
+                    "reason": "Activity '{}' was NOT created — {}".format(
+                        s.activity_name_override or "activity", err_text)}
 
-        # Activity row alone is definitive — the record is visible in the UI
+        # Toast confirms success
+        if toast_found:
+            s.verified = True
+            if r:
+                r.update_last_step(True)
+            return {"action": "done", "result": "PASS",
+                    "reason": "Activity '{}' added to project '{}' — toast confirmed".format(
+                        s.activity_name_override or "activity", s.project_name)}
+
+        # Activity row visible — record is in the UI
         if activity_row_found:
             s.verified = True
             if r:
                 r.update_last_step(True)
             return {"action": "done", "result": "PASS",
                     "reason": "Activity '{}' row confirmed in project '{}'".format(
-                        s.activity_name_override, s.project_name)}
+                        s.activity_name_override or "activity", s.project_name)}
 
-        # Still waiting — retry up to MAX_WAIT
+        # Form closed without error — save succeeded
+        if form_closed:
+            s.verified = True
+            if r:
+                r.update_last_step(True)
+            return {"action": "done", "result": "PASS",
+                    "reason": "Activity '{}' saved to project '{}' — form closed".format(
+                        s.activity_name_override or "activity", s.project_name)}
+
+        # Nothing confirmed yet — wait up to MAX_WAIT then FAIL
         s._submit_wait += 1
         print("[ACTIVITY-VERIFY] Waiting ({}/{})".format(s._submit_wait, s.MAX_WAIT))
 
         if s._submit_wait >= s.MAX_WAIT:
-            if signals_passed >= 1:
-                # One weak signal — optimistic pass with caveat
-                s.verified = True
-                reason = (
-                    "Activity submit attempted; partial confirmation "
-                    "(signals={}/3 after {} waits)"
-                ).format(signals_passed, s.MAX_WAIT)
-                if r:
-                    r.update_last_step(True)
-                return {"action": "done", "result": "PASS", "reason": reason}
-            else:
-                # Zero signals after full timeout — genuine failure
-                if r:
-                    r.update_last_step(
-                        False,
-                        error="Activity submit unconfirmed after {} waits — "
-                              "no toast, no activity row, form still open".format(s.MAX_WAIT),
-                    )
-                return {
-                    "action": "done",
-                    "result": "FAIL",
-                    "reason": (
-                        "Activity submit unconfirmed — "
-                        "no success toast, activity not found in list, form still open"
-                    ),
-                }
+            s.verified = True
+            if r:
+                r.update_last_step(
+                    False,
+                    error="No confirmation received after {} waits — "
+                          "activity was not created".format(s.MAX_WAIT),
+                )
+            return {"action": "done", "result": "FAIL",
+                    "reason": "Activity '{}' was NOT created in project '{}' — "
+                              "save was not confirmed (no toast, no row, form did not close)".format(
+                                  s.activity_name_override or "activity", s.project_name)}
 
         return {"action": "wait", "seconds": 1}
 
