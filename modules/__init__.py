@@ -25,6 +25,11 @@ MODULES = {
         "fragment": "estimates"
     },
 
+    "edit_estimate": {
+        "name": "Edit Estimate",
+        "fragment": "estimates"
+    },
+
 }
 
 MODULE_KEYS = list(MODULES.keys())

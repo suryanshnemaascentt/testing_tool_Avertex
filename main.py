@@ -30,6 +30,9 @@ def _load_module_handler(module_key):
     elif module_key == "estimate_AI_based":
         from modules.estimate_AI_based import decide_action, reset_state, ACTIONS, ACTION_KEYS
         return decide_action, reset_state, ACTIONS, ACTION_KEYS
+    elif module_key == "edit_estimate":
+        from modules.edit_estimate import decide_action, reset_state, ACTIONS, ACTION_KEYS
+        return decide_action, reset_state, ACTIONS, ACTION_KEYS
     raise ValueError("Unknown module: " + module_key)
     
 

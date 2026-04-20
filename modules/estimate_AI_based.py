@@ -379,23 +379,7 @@ def handle_estimate_ai(els):
         }
 
         # ================= CATEGORY =================
-    # CATEGORY CLICK
-    if not s.category_clicked:
-        el = find_by_id(els, "mui-component-select-category")
-        if el:
-            s.category_clicked = True
-            return {
-                "action": "click",
-                "selector": el["selector"]
-            }
-
-# CATEGORY SELECT (AFTER CLICK)
-    if s.category_clicked and not s.category_selected:
-        s.category_selected = True
-        return {
-            "action": "click",
-            "selector": "li[role='option']:nth-child(2)"   # ✅ safe generic option
-        }
+    
     if not s.category_scrolled:
         s.category_scrolled = True
         return {"action": "scroll", "selector": "#mui-component-select-category"}

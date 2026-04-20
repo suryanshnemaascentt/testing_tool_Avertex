@@ -1,4 +1,7 @@
 from datetime import datetime
+from math import comb
+from unittest import result
+from xml import dom
 
 _BASE_URL = "https://vertex-dev.savetime.com"
 
@@ -40,6 +43,7 @@ def scan_dom(dom):
         "role_dropdown": None,
         "dropdown_option": None,
         "effective_from": None,
+        "effective_to": None,
         "primary_toggle": None,
         "save_btn": None,
     }
@@ -85,30 +89,37 @@ def scan_dom(dom):
             result["assign_btn"] = el
 
         # DIALOG
-        if tag == "h2" and "assign role" in comb:
+        if "assign role" in comb:
             result["dialog_open"] = True
 
-        # USER DROPDOWN
-        if role == "combobox" and "user" in comb:
-            result["user_dropdown"] = el
+        
+        comboboxes = []
 
-        # ROLE DROPDOWN
-        if el.get("role") == "combobox" and "user" in comb:
-            result["user_dropdown"] = el
+        for el in dom:
+            role = (el.get("role") or "").lower()
 
-        if el.get("role") == "combobox" and "role" in comb:
-            result["role_dropdown"] = el
+        if role == "combobox":
+            comboboxes.append(el)
 
-        # DROPDOWN OPTION (generic)
-        if role == "option":
+         # AFTER LOOP
+        if len(comboboxes) >= 1:
+            result["user_dropdown"] = comboboxes[0]
+
+        if len(comboboxes) >= 2:
+            result["role_dropdown"] = comboboxes[1]
+
+        if role == "option" or "mui" in cls and "option" in cls:
             result["dropdown_option"] = el
 
         # DATE
-        if "effective from" in comb:
+        if tag == "div" and "effective from" in comb:
             result["effective_from"] = el
 
+        if tag == "div" and "effective to" in comb:
+            result["effective_to"] = el
+
         # TOGGLE
-        if "switch" in str(el):
+        if role == "switch":
             result["primary_toggle"] = el
 
         # SAVE
@@ -249,74 +260,72 @@ _assign = _AssignState()
 def handle_assign(els):
     s = _assign
 
-    # CLICK ASSIGN BUTTON
+    # STEP 1: CLICK ASSIGN ROLE
     if not s.clicked_assign:
         if els["assign_btn"]:
             s.clicked_assign = True
             return {"action": "click", "selector": els["assign_btn"]["selector"]}
         return {"action": "wait", "seconds": 1}
 
-    # WAIT DIALOG
+    # STEP 2: WAIT FOR DIALOG
     if not els["dialog_open"]:
         return {"action": "wait", "seconds": 1}
 
-    # USER DROPDOWN OPEN
-    # Step 2: Open User dropdown
-    if not s.user_selected:
+    # STEP 3: OPEN USER DROPDOWN
+    if not s.user_opened:
         if els["user_dropdown"]:
-            s.user_selected = True
+            s.user_opened = True
             return {"action": "click", "selector": els["user_dropdown"]["selector"]}
-
-    # Step 3: Select option from User dropdown
-    if s.user_selected and not s.role_selected:
-        return {"action": "select_first_option"}
-    
-    # Step 4: Open Role dropdown
-    if not s.role_selected:
-        if els["role_dropdown"]:
-            s.role_selected = True
-            return {"action": "click", "selector": els["role_dropdown"]["selector"]}
-
-    # Step 5: Select option from Role dropdown
-    if s.role_selected and not s.date_selected:
-        return {"action": "select_first_option"}
-
-    # USER SELECT
-    if not s.user_selected:
-        if els["dropdown_option"]:
-            s.user_selected = True
-            return {"action": "click", "selector": els["dropdown_option"]["selector"]}
         return {"action": "wait", "seconds": 1}
 
-    # ROLE DROPDOWN OPEN
+    # STEP 4: WAIT + SELECT USER
+    if s.user_opened and not s.user_selected:
+        if not els["dropdown_option"]:
+            return {"action": "wait", "seconds": 1}
+
+        s.user_selected = True
+        return {"action": "click", "selector": els["dropdown_option"]["selector"]}
+
+    # STEP 5: OPEN ROLE DROPDOWN
     if not s.role_opened:
         if els["role_dropdown"]:
             s.role_opened = True
             return {"action": "click", "selector": els["role_dropdown"]["selector"]}
         return {"action": "wait", "seconds": 1}
 
-    # ROLE SELECT
-    if not s.role_selected:
-        if els["dropdown_option"]:
-            s.role_selected = True
-            return {"action": "click", "selector": els["dropdown_option"]["selector"]}
-        return {"action": "wait", "seconds": 1}
+    # STEP 6: WAIT + SELECT ROLE
+    if s.role_opened and not s.role_selected:
+        if not els["dropdown_option"]:
+            return {"action": "wait", "seconds": 1}
 
-    # DATE CLICK
+        s.role_selected = True
+        return {"action": "click", "selector": els["dropdown_option"]["selector"]}
+
+    # STEP 7: EFFECTIVE FROM
     if not s.date_done:
         if els["effective_from"]:
             s.date_done = True
             return {"action": "click", "selector": els["effective_from"]["selector"]}
         return {"action": "wait", "seconds": 1}
 
-    # TOGGLE
+    # STEP 8: EFFECTIVE TO
+    if not hasattr(s, "to_date_done"):
+        s.to_date_done = False
+
+    if not s.to_date_done:
+        if els.get("effective_to"):
+            s.to_date_done = True
+            return {"action": "click", "selector": els["effective_to"]["selector"]}
+        return {"action": "wait", "seconds": 1}
+
+    # STEP 9: TOGGLE
     if not s.toggle_done:
         if els["primary_toggle"]:
             s.toggle_done = True
             return {"action": "click", "selector": els["primary_toggle"]["selector"]}
         return {"action": "wait", "seconds": 1}
 
-    # SAVE
+    # STEP 10: SAVE
     if not s.saved:
         if els["save_btn"]:
             s.saved = True
@@ -351,5 +360,10 @@ async def decide_action(action, dom, url, goal="", email=None, password=None):
 
     if not nav_done():
         return handle_nav(els, url)
+    
+    print("DEBUG:",
+      "user:", bool(els["user_dropdown"]),
+      "role:", bool(els["role_dropdown"]),
+      "option:", bool(els["dropdown_option"]))
 
     return handle_assign(els)

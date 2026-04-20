@@ -1,0 +1,132 @@
+{
+  "goal": "edit_estimate edit_estimate",
+  "url": "https://vertex-dev.savetime.com/",
+  "result": "FAIL",
+  "reason": "Browser closed",
+  "duration": "92.8s",
+  "started_at": "2026-04-01T17:25:46.646554",
+  "ended_at": "2026-04-01T17:27:19.419482",
+  "steps": [
+    {
+      "step": 1,
+      "action": {
+        "action": "type",
+        "selector": "#i0116",
+        "text": "suraj.kadam@ascentt.com"
+      },
+      "url": "https://vertex-dev.savetime.com/",
+      "success": true
+    },
+    {
+      "step": 2,
+      "action": {
+        "action": "click",
+        "selector": "#idSIButton9"
+      },
+      "url": "https://login.microsoftonline.com/19220479-e2a8-4137-9aec-956ada3f2bd5/oauth2/v2.0/authorize?client_id=f6504864-057b-40b4-a813-828a60807a0f&response_type=code&redirect_uri=https://vertex-dev.savetime.com:8000/auth/callback&scope=openid%20profile%20email%20User.Read&response_mode=query&code_challenge=7GTEKtnxiBG2vjKmxASWU_h_576MUQbpXAoaI0j2sX8&code_challenge_method=S256&state=V9aLAEMMDJ0w5Y2uMvX_WoidDzoFXo81i-bKYWT84jE&sso_reload=true",
+      "success": true
+    },
+    {
+      "step": 3,
+      "action": {
+        "action": "type",
+        "selector": "#i0118",
+        "text": "$Sara$1001"
+      },
+      "url": "https://login.microsoftonline.com/19220479-e2a8-4137-9aec-956ada3f2bd5/oauth2/v2.0/authorize?client_id=f6504864-057b-40b4-a813-828a60807a0f&response_type=code&redirect_uri=https://vertex-dev.savetime.com:8000/auth/callback&scope=openid%20profile%20email%20User.Read&response_mode=query&code_challenge=7GTEKtnxiBG2vjKmxASWU_h_576MUQbpXAoaI0j2sX8&code_challenge_method=S256&state=V9aLAEMMDJ0w5Y2uMvX_WoidDzoFXo81i-bKYWT84jE&sso_reload=true",
+      "success": true
+    },
+    {
+      "step": 4,
+      "action": {
+        "action": "click",
+        "selector": "#idSIButton9"
+      },
+      "url": "https://login.microsoftonline.com/19220479-e2a8-4137-9aec-956ada3f2bd5/oauth2/v2.0/authorize?client_id=f6504864-057b-40b4-a813-828a60807a0f&response_type=code&redirect_uri=https://vertex-dev.savetime.com:8000/auth/callback&scope=openid%20profile%20email%20User.Read&response_mode=query&code_challenge=7GTEKtnxiBG2vjKmxASWU_h_576MUQbpXAoaI0j2sX8&code_challenge_method=S256&state=V9aLAEMMDJ0w5Y2uMvX_WoidDzoFXo81i-bKYWT84jE&sso_reload=true",
+      "success": true
+    },
+    {
+      "step": 5,
+      "action": {
+        "action": "click",
+        "selector": "#idSIButton9"
+      },
+      "url": "https://login.microsoftonline.com/19220479-e2a8-4137-9aec-956ada3f2bd5/login",
+      "success": true
+    },
+    {
+      "step": 6,
+      "action": {
+        "action": "click",
+        "selector": "//div[@id='nav-item-estimates']"
+      },
+      "url": "https://vertex-dev.savetime.com/",
+      "success": true
+    },
+    {
+      "step": 7,
+      "action": {
+        "action": "click",
+        "selector": "//button[@id='new-estimate-button']"
+      },
+      "url": "https://vertex-dev.savetime.com/",
+      "success": true
+    },
+    {
+      "step": 8,
+      "action": {
+        "action": "click",
+        "selector": "//button[text()='Create Manually']"
+      },
+      "url": "https://vertex-dev.savetime.com/estimates/",
+      "success": true
+    },
+    {
+      "step": 9,
+      "action": {
+        "action": "type",
+        "selector": "#_r_1u_",
+        "text": "Atlas_172647"
+      },
+      "url": "https://vertex-dev.savetime.com/estimates/new/",
+      "success": true
+    },
+    {
+      "step": 10,
+      "action": {
+        "action": "type",
+        "selector": "#_r_1v_",
+        "text": "Automation_Project_2026-04-01_17-26-55"
+      },
+      "url": "https://vertex-dev.savetime.com/estimates/new/manual/",
+      "success": true
+    },
+    {
+      "step": 11,
+      "action": {
+        "action": "wait",
+        "seconds": 1
+      },
+      "url": "https://vertex-dev.savetime.com/estimates/new/manual/",
+      "success": true
+    },
+    {
+      "step": 12,
+      "action": {
+        "action": "wait",
+        "seconds": 1
+      },
+      "url": "https://vertex-dev.savetime.com/estimates/new/manual/",
+      "success": true
+    },
+    {
+      "step": 13,
+      "action": {
+        "action": "wait",
+        "seconds": 1
+      },
+      "url": "https://vertex-dev.savetime.com/estimates/new/manual/",
+      "success": false
+    }
+  ]
+}

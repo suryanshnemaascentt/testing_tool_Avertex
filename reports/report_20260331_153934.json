@@ -1,0 +1,265 @@
+{
+  "goal": "assign access_control",
+  "url": "https://vertex-dev.savetime.com/",
+  "result": "FAIL",
+  "reason": "Browser closed",
+  "duration": "223.9s",
+  "started_at": "2026-03-31T15:39:34.404420",
+  "ended_at": "2026-03-31T15:43:18.254868",
+  "steps": [
+    {
+      "step": 1,
+      "action": {
+        "action": "type",
+        "selector": "#i0116",
+        "text": "suraj.kadam@ascentt.com"
+      },
+      "url": "https://vertex-dev.savetime.com/",
+      "success": true
+    },
+    {
+      "step": 2,
+      "action": {
+        "action": "click",
+        "selector": "#idSIButton9"
+      },
+      "url": "https://login.microsoftonline.com/19220479-e2a8-4137-9aec-956ada3f2bd5/oauth2/v2.0/authorize?client_id=f6504864-057b-40b4-a813-828a60807a0f&response_type=code&redirect_uri=https://vertex-dev.savetime.com:8000/auth/callback&scope=openid%20profile%20email%20User.Read&response_mode=query&code_challenge=WZiSNY6_dnT1DCfau964DmlhmlLaC6MA5TsdKJ5CkQc&code_challenge_method=S256&state=eYHOT-hdvb4Pa4cnoqG-zBrhvhCGgdPWFr9ntd9URHw&sso_reload=true",
+      "success": true
+    },
+    {
+      "step": 3,
+      "action": {
+        "action": "type",
+        "selector": "#i0118",
+        "text": "$Sara$1001"
+      },
+      "url": "https://login.microsoftonline.com/19220479-e2a8-4137-9aec-956ada3f2bd5/oauth2/v2.0/authorize?client_id=f6504864-057b-40b4-a813-828a60807a0f&response_type=code&redirect_uri=https://vertex-dev.savetime.com:8000/auth/callback&scope=openid%20profile%20email%20User.Read&response_mode=query&code_challenge=WZiSNY6_dnT1DCfau964DmlhmlLaC6MA5TsdKJ5CkQc&code_challenge_method=S256&state=eYHOT-hdvb4Pa4cnoqG-zBrhvhCGgdPWFr9ntd9URHw&sso_reload=true",
+      "success": true
+    },
+    {
+      "step": 4,
+      "action": {
+        "action": "click",
+        "selector": "#idSIButton9"
+      },
+      "url": "https://login.microsoftonline.com/19220479-e2a8-4137-9aec-956ada3f2bd5/oauth2/v2.0/authorize?client_id=f6504864-057b-40b4-a813-828a60807a0f&response_type=code&redirect_uri=https://vertex-dev.savetime.com:8000/auth/callback&scope=openid%20profile%20email%20User.Read&response_mode=query&code_challenge=WZiSNY6_dnT1DCfau964DmlhmlLaC6MA5TsdKJ5CkQc&code_challenge_method=S256&state=eYHOT-hdvb4Pa4cnoqG-zBrhvhCGgdPWFr9ntd9URHw&sso_reload=true",
+      "success": true
+    },
+    {
+      "step": 5,
+      "action": {
+        "action": "click",
+        "selector": "#idSIButton9"
+      },
+      "url": "https://login.microsoftonline.com/19220479-e2a8-4137-9aec-956ada3f2bd5/login",
+      "success": true
+    },
+    {
+      "step": 6,
+      "action": {
+        "action": "click",
+        "selector": "#nav-user-profile"
+      },
+      "url": "https://vertex-dev.savetime.com/",
+      "success": true
+    },
+    {
+      "step": 7,
+      "action": {
+        "action": "click",
+        "selector": "#settings-icon"
+      },
+      "url": "https://vertex-dev.savetime.com/",
+      "success": true
+    },
+    {
+      "step": 8,
+      "action": {
+        "action": "click",
+        "selector": "#settings-nav-access-control"
+      },
+      "url": "https://vertex-dev.savetime.com/",
+      "success": true
+    },
+    {
+      "step": 9,
+      "action": {
+        "action": "wait",
+        "seconds": 1
+      },
+      "url": "https://vertex-dev.savetime.com/settings/profile/",
+      "success": true
+    },
+    {
+      "step": 10,
+      "action": {
+        "action": "wait",
+        "seconds": 1
+      },
+      "url": "https://vertex-dev.savetime.com/settings/access-control/",
+      "success": true
+    },
+    {
+      "step": 11,
+      "action": {
+        "action": "click",
+        "selector": "button:has-text('Assign role')"
+      },
+      "url": "https://vertex-dev.savetime.com/settings/access-control/",
+      "success": true
+    },
+    {
+      "step": 12,
+      "action": {
+        "action": "wait",
+        "seconds": 1
+      },
+      "url": "https://vertex-dev.savetime.com/settings/access-control/",
+      "success": true
+    },
+    {
+      "step": 13,
+      "action": {
+        "action": "wait",
+        "seconds": 1
+      },
+      "url": "https://vertex-dev.savetime.com/settings/access-control/",
+      "success": true
+    },
+    {
+      "step": 14,
+      "action": {
+        "action": "wait",
+        "seconds": 1
+      },
+      "url": "https://vertex-dev.savetime.com/settings/access-control/",
+      "success": true
+    },
+    {
+      "step": 15,
+      "action": {
+        "action": "wait",
+        "seconds": 1
+      },
+      "url": "https://vertex-dev.savetime.com/settings/access-control/",
+      "success": true
+    },
+    {
+      "step": 16,
+      "action": {
+        "action": "wait",
+        "seconds": 1
+      },
+      "url": "https://vertex-dev.savetime.com/settings/access-control/",
+      "success": true
+    },
+    {
+      "step": 17,
+      "action": {
+        "action": "wait",
+        "seconds": 1
+      },
+      "url": "https://vertex-dev.savetime.com/settings/access-control/",
+      "success": true
+    },
+    {
+      "step": 18,
+      "action": {
+        "action": "wait",
+        "seconds": 1
+      },
+      "url": "https://vertex-dev.savetime.com/settings/access-control/",
+      "success": true
+    },
+    {
+      "step": 19,
+      "action": {
+        "action": "wait",
+        "seconds": 1
+      },
+      "url": "https://vertex-dev.savetime.com/settings/access-control/",
+      "success": true
+    },
+    {
+      "step": 20,
+      "action": {
+        "action": "wait",
+        "seconds": 1
+      },
+      "url": "https://vertex-dev.savetime.com/settings/access-control/",
+      "success": true
+    },
+    {
+      "step": 21,
+      "action": {
+        "action": "wait",
+        "seconds": 1
+      },
+      "url": "https://vertex-dev.savetime.com/settings/access-control/",
+      "success": true
+    },
+    {
+      "step": 22,
+      "action": {
+        "action": "wait",
+        "seconds": 1
+      },
+      "url": "https://vertex-dev.savetime.com/settings/access-control/",
+      "success": true
+    },
+    {
+      "step": 23,
+      "action": {
+        "action": "wait",
+        "seconds": 1
+      },
+      "url": "https://vertex-dev.savetime.com/settings/access-control/",
+      "success": true
+    },
+    {
+      "step": 24,
+      "action": {
+        "action": "wait",
+        "seconds": 1
+      },
+      "url": "https://vertex-dev.savetime.com/settings/access-control/",
+      "success": true
+    },
+    {
+      "step": 25,
+      "action": {
+        "action": "wait",
+        "seconds": 1
+      },
+      "url": "https://vertex-dev.savetime.com/settings/access-control/",
+      "success": true
+    },
+    {
+      "step": 26,
+      "action": {
+        "action": "wait",
+        "seconds": 1
+      },
+      "url": "https://vertex-dev.savetime.com/settings/access-control/",
+      "success": true
+    },
+    {
+      "step": 27,
+      "action": {
+        "action": "wait",
+        "seconds": 1
+      },
+      "url": "https://vertex-dev.savetime.com/settings/access-control/",
+      "success": true
+    },
+    {
+      "step": 28,
+      "action": {
+        "action": "wait",
+        "seconds": 1
+      },
+      "url": "https://vertex-dev.savetime.com/settings/access-control/",
+      "success": false
+    }
+  ]
+}
