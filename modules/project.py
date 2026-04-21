@@ -17,6 +17,11 @@ from report.test_report import get_reporter
 
 NAV_FRAGMENT = "projects"
 
+MODULE_META = {
+    "name":     "Project",
+    "fragment": NAV_FRAGMENT,
+}
+
 ACTIONS = {
     "create": {
         "label":        "Create Project  (auto name + dates)",
@@ -29,6 +34,38 @@ ACTIONS = {
     "delete": {
         "label":        "Delete Project  (search by name)",
         "needs_target": True,
+    },
+    "create_empty_name": {
+        "label":        "[NEG] Create Project with empty name — expects validation error",
+        "needs_target": False,
+    },
+    "create_duplicate": {
+        "label":        "[NEG] Create duplicate project name — expects rejection",
+        "needs_target": False,
+    },
+    "neg_c_03": {
+        "label":        "[NEG-C-03] End date before start date — expects validation error",
+        "needs_target": False,
+    },
+    "neg_c_04": {
+        "label":        "[NEG-C-04] Billable billing type with no client — expects validation",
+        "needs_target": False,
+    },
+    "neg_c_05": {
+        "label":        "[NEG-C-05] Special characters in project name — expects validation/sanitization",
+        "needs_target": False,
+    },
+    "neg_c_06": {
+        "label":        "[NEG-C-06] Very long project name (300 chars) — expects validation/truncation",
+        "needs_target": False,
+    },
+    "neg_c_07": {
+        "label":        "[NEG-C-07] Zero budget — WARN if allowed, PASS if blocked",
+        "needs_target": False,
+    },
+    "neg_c_08": {
+        "label":        "[NEG-C-08] Same start and end date — PASS if allowed or validated",
+        "needs_target": False,
     },
 }
 
@@ -683,16 +720,304 @@ async def _decide_delete(els, url, goal):
 
 
 # ============================================================
+# NEG-01: CREATE WITH EMPTY NAME
+# ============================================================
+
+class _CreateEmptyState:
+    def __init__(self):
+        self.form_open  = False
+        self.submitted  = False
+        self._form_wait = 0
+        self._wait_cnt  = 0
+        self.MAX_WAIT   = 4
+
+    def reset(self):
+        self.__init__()
+
+_create_empty_st = _CreateEmptyState()
+
+
+async def _decide_create_empty(els, url):
+    s = _create_empty_st
+    r = get_reporter()
+
+    if s.submitted:
+        dom_raw = els.get("dom_raw") or []
+
+        # PASS: any validation / required-field error visible in DOM
+        error_found = (
+            els.get("error_toast")
+            or any(
+                any(x in (el.get("text") or "").lower()
+                    for x in ("required", "cannot be empty", "name is required",
+                               "please enter", "invalid", "field is required",
+                               "name cannot", "must not be blank"))
+                for el in dom_raw
+                if el.get("tag", "").lower() not in ("input", "button")
+            )
+        )
+        if error_found:
+            if r:
+                r.update_last_step(True)
+            return {"action": "done", "result": "PASS",
+                    "reason": "Empty name correctly rejected — validation error shown"}
+
+        # PASS: browser/HTML5 validation blocked submit (form still open, no save)
+        if els.get("save_btn") and not els.get("save_toast") and not els.get("success_toast"):
+            if r:
+                r.update_last_step(True)
+            return {"action": "done", "result": "PASS",
+                    "reason": "Empty name blocked — browser validation prevented submit"}
+
+        # FAIL: save toast appeared (empty name was accepted — bug)
+        if els.get("save_toast") or els.get("success_toast"):
+            if r:
+                r.update_last_step(False, error="Empty project name was incorrectly accepted")
+            return {"action": "done", "result": "FAIL",
+                    "reason": "UNEXPECTED: Empty project name accepted — no validation enforced"}
+
+        s._wait_cnt += 1
+        if s._wait_cnt >= s.MAX_WAIT:
+            if r:
+                r.update_last_step(False, error="Could not verify rejection of empty name")
+            return {"action": "done", "result": "FAIL",
+                    "reason": "Could not confirm validation after {} waits".format(s.MAX_WAIT)}
+        return {"action": "wait", "seconds": 1}
+
+    if s.form_open:
+        s.submitted = True
+        if r:
+            r.log_step(len(r.steps) + 1,
+                       {"action": "fill_form", "module": "project", "params": {"project_name": ""}},
+                       url)
+        return {"action": "fill_form", "module": "project",
+                "params": _build_empty_name_params(els)}
+
+    nb = els["new_project_btn"]
+    if nb:
+        s.form_open = True
+        if r:
+            r.log_step(len(r.steps) + 1, {"action": "click", "selector": nb["selector"]}, url)
+        return {"action": "click", "selector": nb["selector"]}
+
+    s._form_wait += 1
+    if s._form_wait > s.MAX_WAIT:
+        if r:
+            r.update_last_step(False, error="'New Project' button not found")
+        return {"action": "done", "result": "FAIL",
+                "reason": "'New Project' button not found on page"}
+    return {"action": "wait", "seconds": 1}
+
+
+# ============================================================
+# NEG-02: CREATE DUPLICATE NAME
+# ============================================================
+
+class _CreateDupState:
+    def __init__(self):
+        self.dup_name       = "NEG_DUP_{}".format(datetime.now().strftime("%H%M%S"))
+        self.phase          = 1   # 1 = first create, 2 = duplicate attempt
+        self.p1_form_open   = False
+        self.p1_submitted   = False
+        self.p2_form_open   = False
+        self.p2_submitted   = False
+        self._p1_form_wait  = 0
+        self._p1_ver_wait   = 0
+        self._p2_form_wait  = 0
+        self._p2_ver_wait   = 0
+        self._p2_close_wait = 0   # grace ticks after form closes before silent-accept
+        self.MAX_WAIT       = 4
+
+    def reset(self):
+        self.__init__()
+
+_create_dup_st = _CreateDupState()
+
+
+async def _decide_create_duplicate(els, url):
+    s = _create_dup_st
+    r = get_reporter()
+
+    # ── Phase 2: Verify duplicate rejection ───────────────────
+    if s.phase == 2:
+        if s.p2_submitted:
+            dom_raw = els.get("dom_raw") or []
+
+            # PASS: duplicate_error element found by scan_dom
+            if els.get("duplicate_error"):
+                if r:
+                    r.update_last_step(True)
+                return {"action": "done", "result": "PASS",
+                        "reason": "Duplicate '{}' correctly rejected — error shown".format(s.dup_name)}
+
+            # PASS: any duplicate phrase in DOM text
+            dup_in_dom = any(
+                any(x in (el.get("text") or "").lower()
+                    for x in ("already exists", "duplicate", "name is not unique",
+                               "already been added", "this name is taken"))
+                for el in dom_raw
+                if el.get("tag", "").lower() not in ("input", "button")
+            )
+            if dup_in_dom:
+                if r:
+                    r.update_last_step(True)
+                return {"action": "done", "result": "PASS",
+                        "reason": "Duplicate '{}' correctly rejected — error shown".format(s.dup_name)}
+
+            # FAIL: save toast appeared (duplicate accepted — bug)
+            if els.get("save_toast") or els.get("success_toast"):
+                if r:
+                    r.update_last_step(False, error="Duplicate project name was incorrectly accepted")
+                return {"action": "done", "result": "FAIL",
+                        "reason": "UNEXPECTED: Duplicate '{}' accepted — uniqueness not enforced".format(s.dup_name)}
+
+            # Also treat error_toast as a PASS signal — the app may surface the
+            # duplicate warning via a generic error toast (role='alert') rather
+            # than a dedicated duplicate_error element.
+            if els.get("error_toast"):
+                toast_text = (els["error_toast"].get("text") or "").lower()
+                if r:
+                    r.update_last_step(True)
+                return {"action": "done", "result": "PASS",
+                        "reason": "Duplicate '{}' correctly rejected — error toast shown: {}".format(
+                            s.dup_name, toast_text[:80])}
+
+            # FAIL: form is no longer open (save_btn absent) — duplicate may have
+            # been silently accepted, OR the toast appeared and disappeared before
+            # this scan.  Give 1 grace tick so the next DOM scan can pick up the
+            # toast (role='alert' elements are now captured by dom_builder).
+            form_still_open = bool(els.get("save_btn"))
+            if not form_still_open:
+                s._p2_close_wait += 1
+                if s._p2_close_wait <= 1:
+                    # One extra wait — let the toast render into the DOM
+                    return {"action": "wait", "seconds": 1}
+                if r:
+                    r.update_last_step(False, error="Duplicate accepted silently — form closed without error")
+                return {"action": "done", "result": "FAIL",
+                        "reason": "UNEXPECTED: Duplicate '{}' accepted silently — uniqueness not enforced".format(s.dup_name)}
+
+            s._p2_ver_wait += 1
+            if s._p2_ver_wait >= s.MAX_WAIT:
+                if r:
+                    r.update_last_step(False, error="Duplicate outcome could not be verified after {} waits".format(s.MAX_WAIT))
+                return {"action": "done", "result": "FAIL",
+                        "reason": "Could not confirm duplicate rejection after {} waits".format(s.MAX_WAIT)}
+            return {"action": "wait", "seconds": 1}
+
+        if s.p2_form_open:
+            s.p2_submitted = True
+            print("[NEG-DUP] Phase 2: submitting duplicate name '{}'".format(s.dup_name))
+            if r:
+                r.log_step(len(r.steps) + 1,
+                           {"action": "fill_form", "module": "project",
+                            "params": {"project_name": s.dup_name}},
+                           url)
+            return {"action": "fill_form", "module": "project",
+                    "params": _build_create_params(s.dup_name, els)}
+
+        nb = els["new_project_btn"]
+        if nb:
+            s.p2_form_open = True
+            if r:
+                r.log_step(len(r.steps) + 1, {"action": "click", "selector": nb["selector"]}, url)
+            return {"action": "click", "selector": nb["selector"]}
+
+        s._p2_form_wait += 1
+        if s._p2_form_wait > s.MAX_WAIT:
+            if r:
+                r.update_last_step(False, error="'New Project' button not found in phase 2")
+            return {"action": "done", "result": "FAIL",
+                    "reason": "'New Project' button not found in phase 2"}
+        return {"action": "wait", "seconds": 1}
+
+    # ── Phase 1: Create the project initially ─────────────────
+    if s.p1_submitted:
+        dom_raw = els.get("dom_raw") or []
+
+        # Name already existed from a previous run — skip straight to phase 2
+        if els.get("duplicate_error"):
+            print("[NEG-DUP] Phase 1: name already exists — skipping to phase 2")
+            s.phase = 2
+            return {"action": "wait", "seconds": 1}
+
+        # Success via toast
+        if els.get("save_toast") or els.get("success_toast"):
+            print("[NEG-DUP] Phase 1 done — created '{}', starting phase 2".format(s.dup_name))
+            s.phase = 2
+            return {"action": "wait", "seconds": 1}
+
+        # Success: name visible in list, form closed
+        name_lower      = s.dup_name.lower()
+        form_still_open = bool(els.get("save_btn"))
+        found = any(
+            name_lower in (el.get("text") or "").lower()
+            for el in dom_raw
+        )
+        if found and not form_still_open:
+            print("[NEG-DUP] Phase 1 done — '{}' visible, starting phase 2".format(s.dup_name))
+            s.phase = 2
+            return {"action": "wait", "seconds": 1}
+
+        s._p1_ver_wait += 1
+        if s._p1_ver_wait >= s.MAX_WAIT:
+            if r:
+                r.update_last_step(False, error="Phase 1 create could not be verified")
+            return {"action": "done", "result": "FAIL",
+                    "reason": "Phase 1 (initial create) not confirmed after {} waits".format(s.MAX_WAIT)}
+        return {"action": "wait", "seconds": 1}
+
+    if s.p1_form_open:
+        s.p1_submitted = True
+        print("[NEG-DUP] Phase 1: creating '{}'".format(s.dup_name))
+        if r:
+            r.log_step(len(r.steps) + 1,
+                       {"action": "fill_form", "module": "project",
+                        "params": {"project_name": s.dup_name}},
+                       url)
+        return {"action": "fill_form", "module": "project",
+                "params": _build_create_params(s.dup_name, els)}
+
+    nb = els["new_project_btn"]
+    if nb:
+        s.p1_form_open = True
+        if r:
+            r.log_step(len(r.steps) + 1, {"action": "click", "selector": nb["selector"]}, url)
+        return {"action": "click", "selector": nb["selector"]}
+
+    s._p1_form_wait += 1
+    if s._p1_form_wait > s.MAX_WAIT:
+        if r:
+            r.update_last_step(False, error="'New Project' button not found in phase 1")
+        return {"action": "done", "result": "FAIL",
+                "reason": "'New Project' button not found on page"}
+    return {"action": "wait", "seconds": 1}
+
+
+# ============================================================
 # PUBLIC ENTRY POINT
 # ============================================================
 
-def reset_state():
+def reset_state(keep_session=False):
+    # Login and nav state are always fully reset.
+    # keep_session=True was designed for reusing a single open browser,
+    # but the suite runner opens a fresh browser per run() call —
+    # so nav_done() must always be cleared to avoid stale True state
+    # leaking from one scenario into the next.
     reset_login()
     reset_nav()
     _create_st.reset()
     _update_st.reset()
     _delete_st.reset()
-    print("[STATE] Project module reset")
+    _create_empty_st.reset()
+    _create_dup_st.reset()
+    _neg_c03_st.reset()
+    _neg_c04_st.reset()
+    _neg_c05_st.reset()
+    _neg_c06_st.reset()
+    _neg_c07_st.reset()
+    _neg_c08_st.reset()
+    print("[STATE] Project module reset (keep_session={})".format(keep_session))
 
 
 async def decide_action(action, dom, url, goal="", email=None, password=None,page=None):
@@ -725,6 +1050,12 @@ async def decide_action(action, dom, url, goal="", email=None, password=None,pag
         return await _decide_update(els, url, goal)
     if action == "delete":
         return await _decide_delete(els, url, goal)
+    if action == "create_empty_name":
+        return await _decide_create_empty(els, url)
+    if action == "create_duplicate":
+        return await _decide_create_duplicate(els, url)
+    if action in ("neg_c_03", "neg_c_04", "neg_c_05", "neg_c_06", "neg_c_07", "neg_c_08"):
+        return await _decide_neg_create_generic(els, url, action)
 
     return {"action": "wait", "seconds": 1}
 
@@ -784,3 +1115,290 @@ def _build_update_params(name, els):
     p = _base_params(name, els, "20000")
     p["description"] = "Updated - " + name
     return p
+
+
+def _build_empty_name_params(els):
+    p = _base_params("", els, "10000")
+    p["description"] = "Negative test — empty name"
+    return p
+
+
+# ============================================================
+# NEG-C-03 to NEG-C-08: Generic Negative Create State
+# ============================================================
+
+class _GenericNegCreateState:
+    """Reusable state for single-step negative create scenarios."""
+    def __init__(self):
+        self.form_open   = False
+        self.submitted   = False
+        self._form_wait  = 0
+        self._wait_cnt   = 0
+        self._close_wait = 0   # grace ticks after form closes before deciding outcome
+        self.MAX_WAIT    = 4
+
+    def reset(self):
+        self.__init__()
+
+
+_neg_c03_st = _GenericNegCreateState()
+_neg_c04_st = _GenericNegCreateState()
+_neg_c05_st = _GenericNegCreateState()
+_neg_c06_st = _GenericNegCreateState()
+_neg_c07_st = _GenericNegCreateState()
+_neg_c08_st = _GenericNegCreateState()
+
+_NEG_STATE_MAP = {
+    "neg_c_03": _neg_c03_st,
+    "neg_c_04": _neg_c04_st,
+    "neg_c_05": _neg_c05_st,
+    "neg_c_06": _neg_c06_st,
+    "neg_c_07": _neg_c07_st,
+    "neg_c_08": _neg_c08_st,
+}
+
+# Scenarios where a save toast = WARN (not necessarily a bug)
+_NEG_WARN_ON_SUCCESS = {"neg_c_07"}
+# Scenarios where a save toast = PASS (both dates same is legally valid)
+_NEG_PASS_ON_SUCCESS = {"neg_c_08"}
+
+
+def _build_neg_c03_params(els):
+    """End date before start date."""
+    today = datetime.now()
+    p = _base_params("NegC03_{}".format(today.strftime("%H%M%S")), els, "10000")
+    p["start_date"] = (today + timedelta(days=30)).strftime("%m/%d/%Y")
+    p["end_date"]   = today.strftime("%m/%d/%Y")
+    return p
+
+
+def _build_neg_c04_params(els):
+    """Billable billing type with no client."""
+    today = datetime.now()
+    p = _base_params("NegC04_{}".format(today.strftime("%H%M%S")), els, "10000")
+    p["billing_type"] = "Billable"
+    p["skip_client"]  = True
+    return p
+
+
+def _build_neg_c05_params(els):
+    """Special characters in project name."""
+    today = datetime.now()
+    name  = "<script>alert('xss')</script>@#$%^&*()_{}".format(today.strftime("%H%M%S"))
+    return _base_params(name, els, "10000")
+
+
+def _build_neg_c06_params(els):
+    """Very long project name — 300 characters."""
+    name = "A" * 300
+    return _base_params(name, els, "10000")
+
+
+def _build_neg_c07_params(els):
+    """Zero budget."""
+    today = datetime.now()
+    p = _base_params("NegC07_{}".format(today.strftime("%H%M%S")), els, "0")
+    return p
+
+
+def _build_neg_c08_params(els):
+    """Same start and end date (today)."""
+    today = datetime.now()
+    p = _base_params("NegC08_{}".format(today.strftime("%H%M%S")), els, "10000")
+    p["start_date"] = today.strftime("%m/%d/%Y")
+    p["end_date"]   = today.strftime("%m/%d/%Y")
+    return p
+
+
+_NEG_PARAMS_MAP = {
+    "neg_c_03": _build_neg_c03_params,
+    "neg_c_04": _build_neg_c04_params,
+    "neg_c_05": _build_neg_c05_params,
+    "neg_c_06": _build_neg_c06_params,
+    "neg_c_07": _build_neg_c07_params,
+    "neg_c_08": _build_neg_c08_params,
+}
+
+
+async def _decide_neg_create_generic(els, url, sc_key):
+    """
+    Shared decision logic for NEG-C-03 through NEG-C-08.
+
+    Flow: wait for New Project btn → click → fill form with bad data → verify outcome.
+    PASS  — validation/error message shown          (expected rejection)
+    WARN  — save succeeded but scenario allows it   (e.g. zero budget)
+    PASS  — save succeeded and scenario allows it   (e.g. same dates)
+    FAIL  — save succeeded when it should not have
+    """
+    s = _NEG_STATE_MAP[sc_key]
+    r = get_reporter()
+    build_params = _NEG_PARAMS_MAP[sc_key]
+    warn_on_ok   = sc_key in _NEG_WARN_ON_SUCCESS
+    pass_on_ok   = sc_key in _NEG_PASS_ON_SUCCESS
+
+    if s.submitted:
+        dom_raw = els.get("dom_raw") or []
+
+        # Check for any validation error message in DOM
+        error_found = (
+            els.get("error_toast")
+            or any(
+                any(x in (el.get("text") or "").lower()
+                    for x in ("required", "invalid", "cannot be empty", "error",
+                               "validation", "must not", "please enter",
+                               "already exists", "duplicate", "too long",
+                               "end date", "start date", "client", "budget"))
+                for el in dom_raw
+                if el.get("tag", "").lower() not in ("input", "button")
+            )
+        )
+        if error_found:
+            if r:
+                r.update_last_step(True)
+            return {"action": "done", "result": "PASS",
+                    "reason": "[{}] Validation error correctly shown".format(sc_key.upper())}
+
+        # Form still open (browser-level HTML5 validation blocked submit)
+        if els.get("save_btn") and not els.get("save_toast") and not els.get("success_toast"):
+            if r:
+                r.update_last_step(True)
+            return {"action": "done", "result": "PASS",
+                    "reason": "[{}] Browser validation prevented submit".format(sc_key.upper())}
+
+        # Save toast appeared — project was accepted
+        if els.get("save_toast") or els.get("success_toast"):
+            if pass_on_ok:
+                if r:
+                    r.update_last_step(True)
+                return {"action": "done", "result": "PASS",
+                        "reason": "[{}] Save accepted — this outcome is acceptable for this scenario".format(
+                            sc_key.upper())}
+            if warn_on_ok:
+                if r:
+                    r.update_last_step(True)
+                return {"action": "done", "result": "WARN",
+                        "reason": "[{}] Save accepted with edge-case input — review if intended".format(
+                            sc_key.upper())}
+            if r:
+                r.update_last_step(False, error="Project saved when it should have been rejected")
+            return {"action": "done", "result": "FAIL",
+                    "reason": "[{}] UNEXPECTED: Project accepted — validation not enforced".format(
+                        sc_key.upper())}
+
+        # If the form is no longer open, the save went through (toast may have
+        # already disappeared).  Give 1 grace tick so role='alert' toast can load;
+        # on the second closed-tick treat it as a definitive "save succeeded".
+        form_still_open = bool(els.get("save_btn"))
+        if not form_still_open:
+            s._close_wait += 1
+            if s._close_wait <= 1:
+                return {"action": "wait", "seconds": 1}
+            # Form is confirmed closed with no error — save succeeded
+            if pass_on_ok:
+                if r:
+                    r.update_last_step(True)
+                return {"action": "done", "result": "PASS",
+                        "reason": "[{}] Save accepted — this outcome is acceptable for this scenario".format(
+                            sc_key.upper())}
+            if warn_on_ok:
+                if r:
+                    r.update_last_step(True)
+                return {"action": "done", "result": "WARN",
+                        "reason": "[{}] Save accepted with edge-case input — review if intended".format(
+                            sc_key.upper())}
+            if r:
+                r.update_last_step(False, error="Project saved when it should have been rejected")
+            return {"action": "done", "result": "FAIL",
+                    "reason": "[{}] UNEXPECTED: Project accepted — validation not enforced".format(
+                        sc_key.upper())}
+
+        s._wait_cnt += 1
+        if s._wait_cnt >= s.MAX_WAIT:
+            if r:
+                r.update_last_step(False, error="[{}] Could not verify outcome after {} waits".format(
+                    sc_key.upper(), s.MAX_WAIT))
+            return {"action": "done", "result": "FAIL",
+                    "reason": "[{}] Could not confirm outcome after {} waits".format(
+                        sc_key.upper(), s.MAX_WAIT)}
+        return {"action": "wait", "seconds": 1}
+
+    if s.form_open:
+        params = build_params(els)
+        s.submitted = True
+        if r:
+            r.log_step(len(r.steps) + 1,
+                       {"action": "fill_form", "module": "project",
+                        "params": {"project_name": params.get("project_name", "")}},
+                       url)
+        return {"action": "fill_form", "module": "project", "params": params}
+
+    nb = els["new_project_btn"]
+    if nb:
+        s.form_open = True
+        if r:
+            r.log_step(len(r.steps) + 1, {"action": "click", "selector": nb["selector"]}, url)
+        return {"action": "click", "selector": nb["selector"]}
+
+    s._form_wait += 1
+    if s._form_wait > s.MAX_WAIT:
+        if r:
+            r.update_last_step(False, error="'New Project' button not found")
+        return {"action": "done", "result": "FAIL",
+                "reason": "[{}] 'New Project' button not found on page".format(sc_key.upper())}
+    return {"action": "wait", "seconds": 1}
+
+
+# ============================================================
+# NEGATIVE CREATE SUITE — scenario registry
+# ============================================================
+
+NEGATIVE_CREATE_SCENARIOS = [
+    {
+        "id":         "NEG-C-01",
+        "action_key": "create_empty_name",
+        "name":       "Empty Project Name",
+        "description": "Project Name = '' — expect validation error",
+    },
+    {
+        "id":         "NEG-C-02",
+        "action_key": "create_duplicate",
+        "name":       "Duplicate Project Name",
+        "description": "Create project twice with same name — expect duplicate error",
+    },
+    {
+        "id":         "NEG-C-03",
+        "action_key": "neg_c_03",
+        "name":       "End Date Before Start Date",
+        "description": "Start = today+30, End = today — expect validation error",
+    },
+    {
+        "id":         "NEG-C-04",
+        "action_key": "neg_c_04",
+        "name":       "Billable Without Client",
+        "description": "Billing Type = Billable, Client = empty — expect validation",
+    },
+    {
+        "id":         "NEG-C-05",
+        "action_key": "neg_c_05",
+        "name":       "Special Characters in Name",
+        "description": "Name = <script>alert</script>@#$%^&*() — expect validation or sanitization",
+    },
+    {
+        "id":         "NEG-C-06",
+        "action_key": "neg_c_06",
+        "name":       "Very Long Name (300 chars)",
+        "description": "Name = 'A' * 300 — expect validation or truncation",
+    },
+    {
+        "id":         "NEG-C-07",
+        "action_key": "neg_c_07",
+        "name":       "Zero Budget",
+        "description": "Budget = 0 — WARN if allowed, PASS if blocked",
+    },
+    {
+        "id":         "NEG-C-08",
+        "action_key": "neg_c_08",
+        "name":       "Same Start and End Date",
+        "description": "Start = End = today — PASS if allowed or validated, FAIL only on crash",
+    },
+]

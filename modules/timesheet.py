@@ -9,6 +9,11 @@ from report.test_report import get_reporter
 
 NAV_FRAGMENT = "timesheet"
 
+MODULE_META = {
+    "name":     "Timesheet",
+    "fragment": NAV_FRAGMENT,
+}
+
 ACTIONS = {
     "add_timesheet": {
         "label":        "Fill weekly timesheet given a start date, project and job",
@@ -1486,7 +1491,7 @@ async def _decide_approve_timesheet(els, url, goal, page=None):
 # PUBLIC ENTRY POINT
 # ============================================================
 
-def reset_state():
+def reset_state(keep_session=False):
     reset_login()
     reset_nav()
     _ts_st.reset()

@@ -415,6 +415,11 @@ from report.test_report import get_reporter
 
 NAV_FRAGMENT = "projects"
 
+MODULE_META = {
+    "name":     "Jobs",
+    "fragment": NAV_FRAGMENT,
+}
+
 ACTIONS = {
     "add_job": {
         "label":        "Create new Job in a Project",
@@ -844,7 +849,7 @@ async def _decide_add_job(els, url, goal):
 # PUBLIC ENTRY POINT
 # ============================================================
 
-def reset_state():
+def reset_state(keep_session=False):
     reset_login()
     reset_nav()
     _add_job_st.reset()

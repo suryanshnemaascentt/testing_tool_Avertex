@@ -26,14 +26,19 @@ async def _wait(page, ms):
 # PROJECT FORM
 # ============================================================
 
-async def fill_project_form(page, p):
+async def fill_project_form(page, p, overrides=None):
     """
     Fill and submit the New / Edit Project form.
 
     Args:
-        page — Playwright page object
-        p    — params dict built by _build_create_params() or _build_update_params()
+        page      — Playwright page object
+        p         — params dict built by _build_create_params() or _build_update_params()
+        overrides — optional dict merged into p before filling (used by negative scenarios)
     """
+    if overrides:
+        p = dict(p)
+        p.update(overrides)
+
     name        = p.get("project_name", "AutoProject_{}".format(datetime.now().strftime("%H%M%S")))
     description = p.get("description", "Auto-generated.")
     start_date  = p.get("start_date") or datetime.now().strftime("%m/%d/%Y")
@@ -78,14 +83,16 @@ async def fill_project_form(page, p):
 
     # 3. Client autocomplete — only shown for Billable projects
     is_billable = (chosen_billing or "").lower().strip() == "billable"
-    if is_billable or chosen_billing is None:
+    skip_client = p.get("skip_client", False)
+    if (is_billable or chosen_billing is None) and not skip_client:
         await mui_autocomplete(page, "Client",
                                p.get("client_search", "a"),
                                p.get("client_selector"))
         if r: r.log_sub_step("Client", p.get("client_search", "a"), "PASS")
     else:
-        print("   [INFO] Client field skipped (billing='{}')".format(chosen_billing))
-        if r: r.log_sub_step("Client", "(skipped — non-billable)", "PASS")
+        reason = "(override: skip_client)" if skip_client else "(billing='{}')".format(chosen_billing)
+        print("   [INFO] Client field skipped {}".format(reason))
+        if r: r.log_sub_step("Client", "(skipped — {})".format(reason), "PASS")
 
     # 4. Link to Estimation autocomplete
     await mui_autocomplete(page, "Link to Estimation",

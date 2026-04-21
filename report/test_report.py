@@ -67,24 +67,73 @@ _SELECTOR_LABELS: dict[str, str] = {
 }
 
 _ACTION_VERB: dict[str, str] = {
-    "type":               "Filled",
-    "click":              "Clicked",
-    "navigate":           "Navigated to",
-    "wait":               "Waited",
-    "select":             "Selected",
-    "fill_form":          "Submitted Form",
-    "fill_job_form":      "Filled Job Form",
-    "fill_activity_form": "Filled Activity Form",
-    "done":               "Completed",
+    "type":    "Filled",
+    "click":   "Clicked",
+    "navigate":"Navigated to",
+    "wait":    "Waited",
+    "select":  "Selected",
+    "fill_form":"Submitted Form",
+    "done":    "Completed",
 }
 
 _LOGIN_ACTIONS = {"type", "click"}
 _NAV_ACTIONS   = {"navigate", "wait"}
-_GOAL_ACTIONS  = {"fill_form", "fill_job_form", "fill_activity_form",
-                  "click", "type", "select", "autocomplete_pick_first"}
 
-# Form actions that group all their fields as sub-steps under ONE step
-_FORM_ACTIONS = {"fill_form", "fill_job_form", "fill_activity_form"}
+# ── Lazy sets — auto-populated from executor/form_filler modules ──
+# Using a class so all existing `in _FORM_ACTIONS` / `in _GOAL_ACTIONS`
+# callsites work unchanged.
+class _LazyFormSet:
+    """
+    Set-like container that auto-discovers form action names
+    from executor/form_filler sub-modules on first use.
+    No changes needed here when adding a new module.
+    """
+    _BASE_GOAL = {"click", "type", "select", "autocomplete_pick_first", "fill_form"}
+    _ALWAYS    = {"fill_form"}
+
+    def __init__(self, include_goal_base: bool = False):
+        self._data: "set | None" = None
+        self._include_goal_base  = include_goal_base
+
+    def _load(self):
+        if self._data is not None:
+            return
+        self._data = set(self._ALWAYS)
+        if self._include_goal_base:
+            self._data.update(self._BASE_GOAL)
+        try:
+            import importlib, pkgutil, pathlib
+            ff_path = (pathlib.Path(__file__).parent.parent
+                       / "executor" / "form_filler")
+            for _ffi in pkgutil.iter_modules([str(ff_path)]):
+                if _ffi.name.startswith("_"):
+                    continue
+                _ffm = importlib.import_module(
+                    "executor.form_filler.{}".format(_ffi.name))
+                name = getattr(_ffm, "FORM_ACTION_NAME", None)
+                if name:
+                    self._data.add(name)
+                    verb = getattr(_ffm, "FORM_ACTION_VERB", None)
+                    if verb:
+                        _ACTION_VERB[name] = verb
+        except Exception as e:
+            print("[REPORT] form-set load warning: {}".format(e))
+
+    def __contains__(self, item):
+        self._load()
+        return item in self._data
+
+    def __iter__(self):
+        self._load()
+        return iter(self._data)
+
+    def __len__(self):
+        self._load()
+        return len(self._data)
+
+
+_FORM_ACTIONS = _LazyFormSet(include_goal_base=False)
+_GOAL_ACTIONS = _LazyFormSet(include_goal_base=True)
 
 # Phrases that flag a duplicate / already-exists situation
 _DUPLICATE_PHRASES = (
@@ -132,28 +181,25 @@ def _describe_action(action: dict, email: str = "", password: str = "") -> str:
         return "Waited {} second(s) for page to settle".format(
             action.get("seconds", "?"))
 
-    if a == "fill_job_form":
-        p = action.get("params", {})
-        return ("Filled Job Form — name: {!r}, start: {}, "
-                "end: {}, hours: {}").format(
-            p.get("job_name", ""), p.get("start_date", ""),
-            p.get("end_date", ""), p.get("hours", ""))
-
-    if a == "fill_activity_form":
-        p = action.get("params", {})
-        return ("Filled Activity Form — task: {!r}, "
-                "job: {!r}, hours: {}").format(
-            p.get("activity_name", ""),
-            p.get("job_name", ""),
-            p.get("hours", ""))
-
-    if a == "fill_form":
-        mod  = action.get("module", "")
-        p    = action.get("params", {})
-        name = p.get("project_name", "")
-        return "Filled {} Form{}".format(
-            mod.capitalize() if mod else "",
-            " — name: {!r}".format(name) if name else "")
+    if a in _FORM_ACTIONS or (a.startswith("fill_") and a.endswith("_form")):
+        p      = action.get("params", {})
+        module = action.get("module", "")
+        lookup = ("fill_{}_form".format(module)
+                  if a == "fill_form" and module else a)
+        reg         = _get_form_registry()
+        entry       = reg.get(lookup, {})
+        desc_params = entry.get("desc_params", [])
+        verb        = entry.get("verb") or _ACTION_VERB.get(a, "Filled Form")
+        if desc_params:
+            parts = ["{}: {!r}".format(lbl, p.get(key, ""))
+                     for key, lbl in desc_params if p.get(key)]
+            return "{} — {}".format(verb, ", ".join(parts)) if parts else verb
+        if module:
+            name = p.get("{}_name".format(module), "")
+            return "{} {}{}".format(
+                verb, module.capitalize(),
+                " — name: {!r}".format(name) if name else "")
+        return verb
 
     if a == "done":
         return "Test Completed — {} : {}".format(
@@ -182,50 +228,79 @@ def _step_category(action: dict, url: str) -> str:
 
 
 # ============================================================
+# Form registry — lazily discovers FORM_SUB_STEPS and metadata
+# from executor/form_filler sub-modules.
+# No changes needed here when adding a new module.
+# ============================================================
+
+_FORM_REGISTRY: "dict | None" = None
+
+
+def _get_form_registry() -> dict:
+    """
+    Returns a dict keyed by FORM_ACTION_NAME (e.g. "fill_job_form").
+    Each value is:
+        {"sub_steps": [...], "verb": "...", "desc_params": [...], "module": ...}
+    Built once and cached.
+    """
+    global _FORM_REGISTRY
+    if _FORM_REGISTRY is not None:
+        return _FORM_REGISTRY
+    registry: dict = {}
+    try:
+        import importlib, pkgutil, pathlib
+        ff_path = (pathlib.Path(__file__).parent.parent
+                   / "executor" / "form_filler")
+        for _ffi in pkgutil.iter_modules([str(ff_path)]):
+            if _ffi.name.startswith("_"):
+                continue
+            _ffm = importlib.import_module(
+                "executor.form_filler.{}".format(_ffi.name))
+            name = getattr(_ffm, "FORM_ACTION_NAME", None)
+            if name is None:
+                continue
+            registry[name] = {
+                "sub_steps":   getattr(_ffm, "FORM_SUB_STEPS",           []),
+                "verb":        getattr(_ffm, "FORM_ACTION_VERB",          "Filled Form"),
+                "desc_params": getattr(_ffm, "FORM_DESCRIPTION_PARAMS",  []),
+                "module":      getattr(_ffm, "FORM_MODULE",               None),
+            }
+    except Exception as e:
+        print("[REPORT] form registry load warning: {}".format(e))
+    _FORM_REGISTRY = registry
+    return registry
+
+
+# ============================================================
 # Sub-step builder
 # ============================================================
 
 def _form_sub_steps(action: dict) -> list[dict]:
-    a = action.get("action", "")
-    p = action.get("params", {})
-    subs = []
-
-    if a == "fill_job_form":
-        for key, label in [("job_name",   "Job Name"),
-                            ("start_date", "Start Date"),
-                            ("end_date",   "End Date"),
-                            ("hours",      "Hours")]:
-            if p.get(key) is not None:
-                subs.append({"field": label, "value": str(p[key]), "status": "pending"})
-        subs.append({"field": "Save (Tick) Button", "value": None, "status": "pending"})
-
-    if a == "fill_activity_form":
-        for key, label in [("activity_name", "Task Name"),
-                            ("job_name",      "Job / Phase"),
-                            ("hours",         "Hours")]:
-            if p.get(key) is not None:
-                subs.append({"field": label, "value": str(p[key]), "status": "pending"})
-        subs.append({"field": "Priority",           "value": "random", "status": "pending"})
-        subs.append({"field": "Save (Tick) Button", "value": None,     "status": "pending"})
-
-    if a == "fill_form" and action.get("module") == "project":
-        for key, label in [
-            ("project_name",   "Project Name"),
-            ("description",    "Description"),
-            ("project_type",   "Project Type"),
-            ("delivery_model", "Delivery Model"),
-            ("methodology",    "Methodology"),
-            ("risk_rating",    "Risk Rating"),
-            ("status",         "Status"),
-            ("billing_type",   "Billing Type"),
-            ("currency",       "Currency"),
-            ("budget",         "Budget"),
-            ("start_date",     "Start Date"),
-            ("end_date",       "End Date"),
-        ]:
-            if p.get(key) is not None:
-                subs.append({"field": label, "value": str(p[key]), "status": "pending"})
-
+    """
+    Builds the list of pending sub-step dicts for a form action.
+    Schema is read from FORM_SUB_STEPS in the matching form_filler module —
+    no changes needed here when adding a new module.
+    """
+    a      = action.get("action", "")
+    p      = action.get("params", {})
+    module = action.get("module", "")
+    # Resolve lookup key:
+    #   "fill_form" + module="project"  →  "fill_project_form"
+    #   "fill_job_form"                 →  "fill_job_form"
+    lookup = ("fill_{}_form".format(module)
+              if a == "fill_form" and module else a)
+    schema = _get_form_registry().get(lookup, {}).get("sub_steps", [])
+    subs   = []
+    for entry in schema:
+        param_key   = entry[0]
+        label       = entry[1]
+        fixed_value = entry[2] if len(entry) > 2 else None
+        if param_key is not None:
+            if p.get(param_key) is not None:
+                subs.append({"field": label,
+                             "value": str(p[param_key]), "status": "pending"})
+        else:
+            subs.append({"field": label, "value": fixed_value, "status": "pending"})
     return subs
 
 
@@ -343,24 +418,6 @@ class TestReporter:
 
     # ── Step logging ───────────────────────────────────────────
 
-    # def log_step(self, step_num: int, action: dict, current_url: str):
-    #     category = _step_category(action, current_url)
-    #     entry = {
-    #         "step":        step_num,
-    #         "category":    category,
-    #         "action":      action.get("action", ""),
-    #         "description": _describe_action(action, self._email, self._password),
-    #         "url":         _sanitise(current_url, self._email, self._password),
-    #         "success":     None,
-    #         "error":       None,
-    #         "raw_action":  _sanitise(
-    #             json.dumps(action, default=str),
-    #             self._email, self._password),
-    #     }
-    #     subs = _form_sub_steps(action)
-    #     if subs:
-    #         entry["sub_steps"] = subs
-    #     self.steps.append(entry)
     def log_step(self, step_num: int, action: dict, current_url: str):
         desc = _describe_action(action, self._email, self._password)
 
@@ -409,18 +466,23 @@ class TestReporter:
             self.log_error("Step {}".format(last["step"]),
                            safe_err, last.get("action", ""))
 
-        # Duplicate detection
-        texts_to_check = [error or ""]
-        for sub in last.get("sub_steps", []):
-            texts_to_check.append(sub.get("error") or "")
-        combined = " ".join(texts_to_check).lower()
-        if any(phrase in combined for phrase in self._DUPLICATE_PHRASES):
-            self._duplicate_detected = True
-            last["error"] = last.get("error") or "Duplicate detected"
-            self.log_error(
-                "Step {}".format(last["step"]),
-                "Duplicate: {}".format(error or "already exists"),
-                last.get("action", ""))
+        # Duplicate detection — only when the step PASSED (i.e. the framework
+        # thinks it succeeded but the DOM showed a duplicate/already-exists error).
+        # Skip when success=False: the step already failed, and the error text
+        # may contain words like "duplicate" as part of the test scenario description
+        # rather than as an app-reported validation message.
+        if success:
+            texts_to_check = [error or ""]
+            for sub in last.get("sub_steps", []):
+                texts_to_check.append(sub.get("error") or "")
+            combined = " ".join(texts_to_check).lower()
+            if any(phrase in combined for phrase in self._DUPLICATE_PHRASES):
+                self._duplicate_detected = True
+                last["error"] = last.get("error") or "Duplicate detected"
+                self.log_error(
+                    "Step {}".format(last["step"]),
+                    "Duplicate: {}".format(error or "already exists"),
+                    last.get("action", ""))
 
         # Flush pending sub-steps only for non-form steps
         # (form steps manage their own sub-step statuses via log_sub_step)
@@ -1011,4 +1073,195 @@ def _build_html(report: dict) -> str:
         total=total, gpass=gpass, gfail=gfail, errc=errc,
         err_section=err_section,
         step_rows=step_rows,
+    )
+
+
+# ============================================================
+# SUITE REPORT — combined report for negative test suites
+# ============================================================
+
+def generate_suite_report(results: list, suite_name: str,
+                           output_dir: str = "reports") -> tuple:
+    """
+    Generate a combined HTML + JSON suite report for a negative test run.
+
+    Args:
+        results    — list of dicts with keys: id, name, status (PASS|FAIL|WARN), reason, steps
+        suite_name — human-readable name, e.g. "PROJECT CREATE"
+        output_dir — folder to write reports into
+
+    Returns:
+        (json_path, html_path)
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    total  = len(results)
+    passed = sum(1 for r in results if r.get("status") == "PASS")
+    failed = sum(1 for r in results if r.get("status") == "FAIL")
+    warned = sum(1 for r in results if r.get("status") == "WARN")
+
+    suite_data = {
+        "suite_name": suite_name,
+        "generated":  datetime.now().isoformat(),
+        "summary":    {"total": total, "passed": passed, "failed": failed, "warned": warned},
+        "scenarios":  results,
+    }
+
+    slug = suite_name.lower().replace(" ", "_")
+    jf   = os.path.join(output_dir, "neg_suite_{}_{}.json".format(slug, ts))
+    with open(jf, "w", encoding="utf-8") as fh:
+        json.dump(suite_data, fh, indent=2, default=str)
+    print("[SUITE REPORT] JSON -> {}".format(jf))
+
+    hf = os.path.join(output_dir, "neg_suite_{}_{}.html".format(slug, ts))
+    with open(hf, "w", encoding="utf-8") as fh:
+        fh.write(_build_suite_html(suite_data))
+    print("[SUITE REPORT] HTML -> {}".format(hf))
+
+    return jf, hf
+
+
+def _build_suite_html(data: dict) -> str:
+    name    = data.get("suite_name", "")
+    summary = data.get("summary", {})
+    results = data.get("scenarios", [])
+    total   = summary.get("total", 0)
+    passed  = summary.get("passed", 0)
+    failed  = summary.get("failed", 0)
+    warned  = summary.get("warned", 0)
+    gen     = (data.get("generated") or "")[:19].replace("T", " ")
+
+    rows = ""
+    for sc in results:
+        status = sc.get("status", "?")
+        if status == "PASS":
+            rc_s, ico = "#16a34a", "&#10003;"
+        elif status == "FAIL":
+            rc_s, ico = "#dc2626", "&#10007;"
+        elif status == "WARN":
+            rc_s, ico = "#d97706", "&#9888;"
+        else:
+            rc_s, ico = "#64748b", "&#8226;"
+
+        steps = sc.get("steps") or []
+        steps_html = ""
+        if steps:
+            items = "".join(
+                "<li>{}</li>".format(s.get("description", str(s)))
+                for s in steps
+            )
+            steps_html = "<details><summary>Steps ({})</summary><ol>{}</ol></details>".format(
+                len(steps), items)
+
+        rows += """
+        <tr>
+          <td style="width:100px;font-weight:700;color:#475569">{sc_id}</td>
+          <td>{sc_name}</td>
+          <td style="width:90px;text-align:center">
+            <span style="display:inline-block;padding:3px 14px;border-radius:14px;
+                         font-size:12px;font-weight:700;color:white;background:{rc_s}">
+              {ico}&nbsp;{status}
+            </span>
+          </td>
+          <td style="font-size:12px;color:#334155">{reason}{steps}</td>
+        </tr>""".format(
+            sc_id=sc.get("id", ""),
+            sc_name=sc.get("name", ""),
+            rc_s=rc_s, ico=ico, status=status,
+            reason=sc.get("reason", ""),
+            steps=steps_html)
+
+    return """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Negative Test Suite &mdash; {name}</title>
+<style>
+  *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0 }}
+  body {{
+    font-family: 'Segoe UI', system-ui, Arial, sans-serif;
+    background: #f0f4f8; color: #1a202c;
+    padding: 32px 24px; min-height: 100vh;
+  }}
+  .banner {{
+    background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+    color: white; border-radius: 14px; padding: 28px 36px;
+    margin-bottom: 28px; box-shadow: 0 4px 20px rgba(0,0,0,0.18);
+  }}
+  .banner h1 {{ font-size: 20px; font-weight: 700; margin-bottom: 6px; }}
+  .banner .sub {{ font-size: 12px; color: #94a3b8; letter-spacing: 1px;
+                  text-transform: uppercase; margin-bottom: 4px; }}
+  .banner .ts  {{ font-size: 12px; color: #64748b; }}
+  .cards {{
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 16px; margin-bottom: 28px;
+  }}
+  .card {{
+    background: white; border-radius: 12px; padding: 20px 18px;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.07); border-top: 4px solid #e2e8f0;
+  }}
+  .card.c-total {{ border-color: #0ea5e9; }}
+  .card.c-pass  {{ border-color: #16a34a; }}
+  .card.c-fail  {{ border-color: #dc2626; }}
+  .card.c-warn  {{ border-color: #d97706; }}
+  .card .c-num  {{ font-size: 32px; font-weight: 800; color: #1e293b; }}
+  .card.c-pass .c-num {{ color: #16a34a; }}
+  .card.c-fail .c-num {{ color: #dc2626; }}
+  .card.c-warn .c-num {{ color: #d97706; }}
+  .card .c-lbl  {{
+    font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.6px; color: #64748b; margin-top: 4px;
+  }}
+  .data-table {{
+    width: 100%; border-collapse: collapse; background: white;
+    border-radius: 10px; overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  }}
+  .data-table thead tr {{
+    background: #1e293b; color: #e2e8f0;
+    font-size: 12px; letter-spacing: 0.5px; text-transform: uppercase;
+  }}
+  .data-table th, .data-table td {{
+    padding: 11px 16px; text-align: left; font-size: 13px;
+  }}
+  .data-table tbody tr {{ border-bottom: 1px solid #f1f5f9; }}
+  .data-table tbody tr:last-child {{ border-bottom: none; }}
+  .data-table tbody tr:hover {{ background: #f8fafc; }}
+  details summary {{ cursor: pointer; color: #0369a1; font-size: 12px; margin-top: 4px; }}
+  details ol {{ margin-top: 6px; padding-left: 18px; font-size: 11px; color: #475569; }}
+  .footer {{ text-align: center; font-size: 11px; color: #94a3b8; margin-top: 16px; }}
+</style>
+</head>
+<body>
+
+<div class="banner">
+  <div class="sub">Orbis &nbsp;&middot;&nbsp; Negative Test Suite Report</div>
+  <h1>NEGATIVE TEST SUITE &mdash; {name}</h1>
+  <div class="ts">Generated: {gen}</div>
+</div>
+
+<div class="cards">
+  <div class="card c-total"><div class="c-num">{total}</div><div class="c-lbl">Total</div></div>
+  <div class="card c-pass"><div class="c-num">{passed}</div><div class="c-lbl">Passed</div></div>
+  <div class="card c-fail"><div class="c-num">{failed}</div><div class="c-lbl">Failed</div></div>
+  <div class="card c-warn"><div class="c-num">{warned}</div><div class="c-lbl">Warned</div></div>
+</div>
+
+<table class="data-table">
+  <thead>
+    <tr><th>ID</th><th>Scenario</th><th>Result</th><th>Reason / Steps</th></tr>
+  </thead>
+  <tbody>{rows}</tbody>
+</table>
+
+<div class="footer">Generated by Orbis Automation Tool &nbsp;&middot;&nbsp; {gen}</div>
+
+</body>
+</html>""".format(
+        name=name, gen=gen,
+        total=total, passed=passed, failed=failed, warned=warned,
+        rows=rows,
     )
