@@ -8,6 +8,23 @@ from ._shared import _wait
 # executor/form_filler/activity.py — Activity form fill logic.
 # ============================================================
 
+# ── Report integration metadata ──────────────────────────────
+FORM_ACTION_NAME        = "fill_activity_form"
+FORM_MODULE             = None
+FORM_ACTION_VERB        = "Filled Activity Form"
+FORM_DESCRIPTION_PARAMS = [
+    ("activity_name", "task"),
+    ("job_name",      "job"),
+    ("hours",         "hours"),
+]
+FORM_SUB_STEPS = [
+    ("activity_name", "Task Name",           None),
+    ("job_name",      "Job / Phase",         None),
+    ("hours",         "Hours",               None),
+    (None,            "Priority",            "random"),
+    (None,            "Save (Tick) Button",  None),
+]
+
 
 async def fill_activity_form(page, p):
     """

@@ -415,6 +415,11 @@ from report.test_report import get_reporter
 
 NAV_FRAGMENT = "projects"
 
+MODULE_META = {
+    "name":     "Jobs",
+    "fragment": NAV_FRAGMENT,
+}
+
 ACTIONS = {
     "add_job": {
         "label":        "Create new Job in a Project",

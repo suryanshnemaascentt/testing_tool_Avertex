@@ -38,8 +38,9 @@ MAX_STEPS     = int(os.getenv("AVERTEX_MAX_STEPS", "60"))
 DEFAULT_URL   = BASE_URL + "/"
 
 # ── Credentials ──────────────────────────────────────────────
+# Set these in a .env file (see .env.example) — never hardcode here.
 LOGIN_EMAIL    = os.getenv("AVERTEX_EMAIL",    "suryansh.nema@ascentt.com")
-LOGIN_PASSWORD = os.getenv("AVERTEX_PASSWORD")  # Must be set via env var or .env — no default allowed
+LOGIN_PASSWORD = os.getenv("AVERTEX_PASSWORD")  # Must be set via .env or environment — no default allowed
 
 # ── Timing constants (ms) ─────────────────────────────────────
 T_SHORT       =   80    # brief pause after a click

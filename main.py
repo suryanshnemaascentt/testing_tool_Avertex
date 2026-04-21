@@ -36,20 +36,24 @@ from utils.session_manager import (
 
 
 def _load_module_handler(module_key):
-    if module_key == "project":
-        from modules.project import decide_action, reset_state, ACTIONS, ACTION_KEYS
-        return decide_action, reset_state, ACTIONS, ACTION_KEYS
-    if module_key == "job":
-        from modules.job import decide_action, reset_state, ACTIONS, ACTION_KEYS
-        return decide_action, reset_state, ACTIONS, ACTION_KEYS
-    if module_key == "activities":
-        from modules.activities import decide_action, reset_state, ACTIONS, ACTION_KEYS
-        return decide_action, reset_state, ACTIONS, ACTION_KEYS
-    if module_key == "timesheet":
-        from modules.timesheet import decide_action, reset_state, ACTIONS, ACTION_KEYS
-        return decide_action, reset_state, ACTIONS, ACTION_KEYS
-
-    raise ValueError("Unknown module: '{}'. Add it to _load_module_handler.".format(module_key))
+    """
+    Dynamically import modules/<module_key>.py.
+    No changes needed here when adding a new module — just:
+      1. Create modules/<name>.py
+      2. Register it in modules/__init__.py MODULES dict
+    """
+    import importlib
+    if module_key not in MODULES:
+        raise ValueError(
+            "Unknown module: '{}'. Available: {}. "
+            "Register it in modules/__init__.py.".format(
+                module_key, list(MODULES.keys())))
+    try:
+        mod = importlib.import_module("modules.{}".format(module_key))
+    except ModuleNotFoundError as exc:
+        raise ValueError(
+            "Module file not found for '{}': {}".format(module_key, exc))
+    return mod.decide_action, mod.reset_state, mod.ACTIONS, mod.ACTION_KEYS
 
 
 async def is_page_alive(page):

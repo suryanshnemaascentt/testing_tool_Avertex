@@ -5,6 +5,17 @@ from ._shared import _wait
 # executor/form_filler/timesheet.py — Timesheet form fill logic.
 # ============================================================
 
+# ── Report integration metadata ──────────────────────────────
+FORM_ACTION_NAME        = "fill_timesheet_row_form"
+FORM_MODULE             = None
+FORM_ACTION_VERB        = "Filled Timesheet Row"
+FORM_DESCRIPTION_PARAMS = [
+    ("project_name", "project"),
+    ("job_name",     "job"),
+    ("hours",        "hours"),
+]
+FORM_SUB_STEPS = []  # timesheet uses step-by-step internal logging
+
 _LOCATION_MAP = {
     "wfh":            "WFH",
     "work from home": "WFH",

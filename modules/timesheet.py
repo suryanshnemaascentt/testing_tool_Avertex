@@ -9,6 +9,11 @@ from report.test_report import get_reporter
 
 NAV_FRAGMENT = "timesheet"
 
+MODULE_META = {
+    "name":     "Timesheet",
+    "fragment": NAV_FRAGMENT,
+}
+
 ACTIONS = {
     "add_timesheet": {
         "label":        "Fill weekly timesheet given a start date, project and job",

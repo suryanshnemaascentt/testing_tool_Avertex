@@ -7,6 +7,24 @@ from ._shared import _wait
 # executor/form_filler/job.py — Job form fill logic.
 # ============================================================
 
+# ── Report integration metadata ──────────────────────────────
+FORM_ACTION_NAME        = "fill_job_form"
+FORM_MODULE             = None
+FORM_ACTION_VERB        = "Filled Job Form"
+FORM_DESCRIPTION_PARAMS = [
+    ("job_name",   "name"),
+    ("start_date", "start"),
+    ("end_date",   "end"),
+    ("hours",      "hours"),
+]
+FORM_SUB_STEPS = [
+    ("job_name",   "Job Name",           None),
+    ("start_date", "Start Date",         None),
+    ("end_date",   "End Date",           None),
+    ("hours",      "Hours",              None),
+    (None,         "Save (Tick) Button", None),
+]
+
 
 async def fill_job_form(page, p):
     """

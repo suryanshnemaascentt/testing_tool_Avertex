@@ -67,24 +67,73 @@ _SELECTOR_LABELS: dict[str, str] = {
 }
 
 _ACTION_VERB: dict[str, str] = {
-    "type":               "Filled",
-    "click":              "Clicked",
-    "navigate":           "Navigated to",
-    "wait":               "Waited",
-    "select":             "Selected",
-    "fill_form":          "Submitted Form",
-    "fill_job_form":      "Filled Job Form",
-    "fill_activity_form": "Filled Activity Form",
-    "done":               "Completed",
+    "type":    "Filled",
+    "click":   "Clicked",
+    "navigate":"Navigated to",
+    "wait":    "Waited",
+    "select":  "Selected",
+    "fill_form":"Submitted Form",
+    "done":    "Completed",
 }
 
 _LOGIN_ACTIONS = {"type", "click"}
 _NAV_ACTIONS   = {"navigate", "wait"}
-_GOAL_ACTIONS  = {"fill_form", "fill_job_form", "fill_activity_form",
-                  "click", "type", "select", "autocomplete_pick_first"}
 
-# Form actions that group all their fields as sub-steps under ONE step
-_FORM_ACTIONS = {"fill_form", "fill_job_form", "fill_activity_form"}
+# ── Lazy sets — auto-populated from executor/form_filler modules ──
+# Using a class so all existing `in _FORM_ACTIONS` / `in _GOAL_ACTIONS`
+# callsites work unchanged.
+class _LazyFormSet:
+    """
+    Set-like container that auto-discovers form action names
+    from executor/form_filler sub-modules on first use.
+    No changes needed here when adding a new module.
+    """
+    _BASE_GOAL = {"click", "type", "select", "autocomplete_pick_first", "fill_form"}
+    _ALWAYS    = {"fill_form"}
+
+    def __init__(self, include_goal_base: bool = False):
+        self._data: "set | None" = None
+        self._include_goal_base  = include_goal_base
+
+    def _load(self):
+        if self._data is not None:
+            return
+        self._data = set(self._ALWAYS)
+        if self._include_goal_base:
+            self._data.update(self._BASE_GOAL)
+        try:
+            import importlib, pkgutil, pathlib
+            ff_path = (pathlib.Path(__file__).parent.parent
+                       / "executor" / "form_filler")
+            for _ffi in pkgutil.iter_modules([str(ff_path)]):
+                if _ffi.name.startswith("_"):
+                    continue
+                _ffm = importlib.import_module(
+                    "executor.form_filler.{}".format(_ffi.name))
+                name = getattr(_ffm, "FORM_ACTION_NAME", None)
+                if name:
+                    self._data.add(name)
+                    verb = getattr(_ffm, "FORM_ACTION_VERB", None)
+                    if verb:
+                        _ACTION_VERB[name] = verb
+        except Exception as e:
+            print("[REPORT] form-set load warning: {}".format(e))
+
+    def __contains__(self, item):
+        self._load()
+        return item in self._data
+
+    def __iter__(self):
+        self._load()
+        return iter(self._data)
+
+    def __len__(self):
+        self._load()
+        return len(self._data)
+
+
+_FORM_ACTIONS = _LazyFormSet(include_goal_base=False)
+_GOAL_ACTIONS = _LazyFormSet(include_goal_base=True)
 
 # Phrases that flag a duplicate / already-exists situation
 _DUPLICATE_PHRASES = (
@@ -132,28 +181,25 @@ def _describe_action(action: dict, email: str = "", password: str = "") -> str:
         return "Waited {} second(s) for page to settle".format(
             action.get("seconds", "?"))
 
-    if a == "fill_job_form":
-        p = action.get("params", {})
-        return ("Filled Job Form — name: {!r}, start: {}, "
-                "end: {}, hours: {}").format(
-            p.get("job_name", ""), p.get("start_date", ""),
-            p.get("end_date", ""), p.get("hours", ""))
-
-    if a == "fill_activity_form":
-        p = action.get("params", {})
-        return ("Filled Activity Form — task: {!r}, "
-                "job: {!r}, hours: {}").format(
-            p.get("activity_name", ""),
-            p.get("job_name", ""),
-            p.get("hours", ""))
-
-    if a == "fill_form":
-        mod  = action.get("module", "")
-        p    = action.get("params", {})
-        name = p.get("project_name", "")
-        return "Filled {} Form{}".format(
-            mod.capitalize() if mod else "",
-            " — name: {!r}".format(name) if name else "")
+    if a in _FORM_ACTIONS or (a.startswith("fill_") and a.endswith("_form")):
+        p      = action.get("params", {})
+        module = action.get("module", "")
+        lookup = ("fill_{}_form".format(module)
+                  if a == "fill_form" and module else a)
+        reg         = _get_form_registry()
+        entry       = reg.get(lookup, {})
+        desc_params = entry.get("desc_params", [])
+        verb        = entry.get("verb") or _ACTION_VERB.get(a, "Filled Form")
+        if desc_params:
+            parts = ["{}: {!r}".format(lbl, p.get(key, ""))
+                     for key, lbl in desc_params if p.get(key)]
+            return "{} — {}".format(verb, ", ".join(parts)) if parts else verb
+        if module:
+            name = p.get("{}_name".format(module), "")
+            return "{} {}{}".format(
+                verb, module.capitalize(),
+                " — name: {!r}".format(name) if name else "")
+        return verb
 
     if a == "done":
         return "Test Completed — {} : {}".format(
@@ -182,50 +228,79 @@ def _step_category(action: dict, url: str) -> str:
 
 
 # ============================================================
+# Form registry — lazily discovers FORM_SUB_STEPS and metadata
+# from executor/form_filler sub-modules.
+# No changes needed here when adding a new module.
+# ============================================================
+
+_FORM_REGISTRY: "dict | None" = None
+
+
+def _get_form_registry() -> dict:
+    """
+    Returns a dict keyed by FORM_ACTION_NAME (e.g. "fill_job_form").
+    Each value is:
+        {"sub_steps": [...], "verb": "...", "desc_params": [...], "module": ...}
+    Built once and cached.
+    """
+    global _FORM_REGISTRY
+    if _FORM_REGISTRY is not None:
+        return _FORM_REGISTRY
+    registry: dict = {}
+    try:
+        import importlib, pkgutil, pathlib
+        ff_path = (pathlib.Path(__file__).parent.parent
+                   / "executor" / "form_filler")
+        for _ffi in pkgutil.iter_modules([str(ff_path)]):
+            if _ffi.name.startswith("_"):
+                continue
+            _ffm = importlib.import_module(
+                "executor.form_filler.{}".format(_ffi.name))
+            name = getattr(_ffm, "FORM_ACTION_NAME", None)
+            if name is None:
+                continue
+            registry[name] = {
+                "sub_steps":   getattr(_ffm, "FORM_SUB_STEPS",           []),
+                "verb":        getattr(_ffm, "FORM_ACTION_VERB",          "Filled Form"),
+                "desc_params": getattr(_ffm, "FORM_DESCRIPTION_PARAMS",  []),
+                "module":      getattr(_ffm, "FORM_MODULE",               None),
+            }
+    except Exception as e:
+        print("[REPORT] form registry load warning: {}".format(e))
+    _FORM_REGISTRY = registry
+    return registry
+
+
+# ============================================================
 # Sub-step builder
 # ============================================================
 
 def _form_sub_steps(action: dict) -> list[dict]:
-    a = action.get("action", "")
-    p = action.get("params", {})
-    subs = []
-
-    if a == "fill_job_form":
-        for key, label in [("job_name",   "Job Name"),
-                            ("start_date", "Start Date"),
-                            ("end_date",   "End Date"),
-                            ("hours",      "Hours")]:
-            if p.get(key) is not None:
-                subs.append({"field": label, "value": str(p[key]), "status": "pending"})
-        subs.append({"field": "Save (Tick) Button", "value": None, "status": "pending"})
-
-    if a == "fill_activity_form":
-        for key, label in [("activity_name", "Task Name"),
-                            ("job_name",      "Job / Phase"),
-                            ("hours",         "Hours")]:
-            if p.get(key) is not None:
-                subs.append({"field": label, "value": str(p[key]), "status": "pending"})
-        subs.append({"field": "Priority",           "value": "random", "status": "pending"})
-        subs.append({"field": "Save (Tick) Button", "value": None,     "status": "pending"})
-
-    if a == "fill_form" and action.get("module") == "project":
-        for key, label in [
-            ("project_name",   "Project Name"),
-            ("description",    "Description"),
-            ("project_type",   "Project Type"),
-            ("delivery_model", "Delivery Model"),
-            ("methodology",    "Methodology"),
-            ("risk_rating",    "Risk Rating"),
-            ("status",         "Status"),
-            ("billing_type",   "Billing Type"),
-            ("currency",       "Currency"),
-            ("budget",         "Budget"),
-            ("start_date",     "Start Date"),
-            ("end_date",       "End Date"),
-        ]:
-            if p.get(key) is not None:
-                subs.append({"field": label, "value": str(p[key]), "status": "pending"})
-
+    """
+    Builds the list of pending sub-step dicts for a form action.
+    Schema is read from FORM_SUB_STEPS in the matching form_filler module —
+    no changes needed here when adding a new module.
+    """
+    a      = action.get("action", "")
+    p      = action.get("params", {})
+    module = action.get("module", "")
+    # Resolve lookup key:
+    #   "fill_form" + module="project"  →  "fill_project_form"
+    #   "fill_job_form"                 →  "fill_job_form"
+    lookup = ("fill_{}_form".format(module)
+              if a == "fill_form" and module else a)
+    schema = _get_form_registry().get(lookup, {}).get("sub_steps", [])
+    subs   = []
+    for entry in schema:
+        param_key   = entry[0]
+        label       = entry[1]
+        fixed_value = entry[2] if len(entry) > 2 else None
+        if param_key is not None:
+            if p.get(param_key) is not None:
+                subs.append({"field": label,
+                             "value": str(p[param_key]), "status": "pending"})
+        else:
+            subs.append({"field": label, "value": fixed_value, "status": "pending"})
     return subs
 
 
@@ -343,24 +418,6 @@ class TestReporter:
 
     # ── Step logging ───────────────────────────────────────────
 
-    # def log_step(self, step_num: int, action: dict, current_url: str):
-    #     category = _step_category(action, current_url)
-    #     entry = {
-    #         "step":        step_num,
-    #         "category":    category,
-    #         "action":      action.get("action", ""),
-    #         "description": _describe_action(action, self._email, self._password),
-    #         "url":         _sanitise(current_url, self._email, self._password),
-    #         "success":     None,
-    #         "error":       None,
-    #         "raw_action":  _sanitise(
-    #             json.dumps(action, default=str),
-    #             self._email, self._password),
-    #     }
-    #     subs = _form_sub_steps(action)
-    #     if subs:
-    #         entry["sub_steps"] = subs
-    #     self.steps.append(entry)
     def log_step(self, step_num: int, action: dict, current_url: str):
         desc = _describe_action(action, self._email, self._password)
 

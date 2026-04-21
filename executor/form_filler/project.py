@@ -8,6 +8,28 @@ from ._shared import _wait
 # executor/form_filler/project.py — Project form fill logic.
 # ============================================================
 
+# ── Report integration metadata ──────────────────────────────
+# This module is invoked via action="fill_form" + module="project".
+# FORM_ACTION_NAME is the lookup key used by test_report.py.
+FORM_ACTION_NAME        = "fill_project_form"
+FORM_MODULE             = "project"
+FORM_ACTION_VERB        = "Submitted Project Form"
+FORM_DESCRIPTION_PARAMS = [("project_name", "name")]
+FORM_SUB_STEPS = [
+    ("project_name",   "Project Name",   None),
+    ("description",    "Description",    None),
+    ("project_type",   "Project Type",   None),
+    ("delivery_model", "Delivery Model", None),
+    ("methodology",    "Methodology",    None),
+    ("risk_rating",    "Risk Rating",    None),
+    ("status",         "Status",         None),
+    ("billing_type",   "Billing Type",   None),
+    ("currency",       "Currency",       None),
+    ("budget",         "Budget",         None),
+    ("start_date",     "Start Date",     None),
+    ("end_date",       "End Date",       None),
+]
+
 
 async def fill_project_form(page, p, overrides=None):
     """

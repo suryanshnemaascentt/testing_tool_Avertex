@@ -17,6 +17,11 @@ from report.test_report import get_reporter
 
 NAV_FRAGMENT = "projects"
 
+MODULE_META = {
+    "name":     "Project",
+    "fragment": NAV_FRAGMENT,
+}
+
 ACTIONS = {
     "create": {
         "label":        "Create Project  (auto name + dates)",
