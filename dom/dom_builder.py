@@ -36,6 +36,7 @@ async def extract_live_dom(page):
                     "[role='menu']",
                     "[role='dialog']",
                     "[role='alertdialog']",
+                    "[role='alert']",
                     "[role='status']",
                     "[role='row']",
                     "[role='cell']",

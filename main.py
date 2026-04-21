@@ -65,13 +65,20 @@ async def is_page_alive(page):
 # CORE RUN LOOP
 # ============================================================
 
-async def run(url, module_key, action_key, goal, test_mode=False):
+async def run(url, module_key, action_key, goal, test_mode=False, keep_session=False):
     """
     Main automation loop — fully automatic, no user interaction needed.
 
     Credentials are read from config/settings.py (LOGIN_EMAIL, LOGIN_PASSWORD).
     Session is created automatically on first run, reused on subsequent runs.
+
+    Args:
+        keep_session — if True, skip state reset for login/nav (reuse active session)
+
+    Returns:
+        dict with keys 'result' (PASS/FAIL) and 'reason' (str).
     """
+    _run_outcome = {"result": "FAIL", "reason": "Run did not complete"}
 
     # ── STEP 0: Ensure valid session ──────────────────────────
     if not session_exists():
@@ -88,7 +95,7 @@ async def run(url, module_key, action_key, goal, test_mode=False):
     ) if test_mode else None
 
     decide_action, reset_state, _, _ = _load_module_handler(module_key)
-    reset_state()
+    reset_state(keep_session=keep_session)
 
     _BROWSER_ARGS = ["--disable-blink-features=AutomationControlled"]
 
@@ -137,7 +144,7 @@ async def run(url, module_key, action_key, goal, test_mode=False):
                 reporter.save_report()
                 reporter.print_summary()
             await browser.close()
-            return
+            return {"result": "FAIL", "reason": "Navigation failed"}
 
         # ── STEP 0b: Verify session via actual navigation ──────────
         if is_redirected_to_sso(page.url):
@@ -154,7 +161,7 @@ async def run(url, module_key, action_key, goal, test_mode=False):
                     reporter.finish(result="FAIL", reason="Session expired — re-run to re-login")
                     reporter.save_report()
                     reporter.print_summary()
-                return
+                return {"result": "FAIL", "reason": "Session expired — re-run to re-login"}
             else:
                 print("[SESSION] Refresh token worked")
                 logger.info("Refresh token worked — session restored")
@@ -182,6 +189,7 @@ async def run(url, module_key, action_key, goal, test_mode=False):
                     reporter.finish(result="FAIL", reason="Browser closed")
                     reporter.save_report()
                     reporter.print_summary()
+                _run_outcome = {"result": "FAIL", "reason": "Browser closed"}
                 break
 
             current_url = page.url
@@ -199,6 +207,7 @@ async def run(url, module_key, action_key, goal, test_mode=False):
                         reporter.finish(result="FAIL", reason="Session expired mid-run")
                         reporter.save_report()
                         reporter.print_summary()
+                    _run_outcome = {"result": "FAIL", "reason": "Session expired mid-run"}
                     break
                 else:
                     print("[SESSION] Refresh token worked")
@@ -248,6 +257,7 @@ async def run(url, module_key, action_key, goal, test_mode=False):
                     reporter.finish(result=result, reason=reason)
                     reporter.save_report()
                     reporter.print_summary()
+                _run_outcome = {"result": result, "reason": reason}
                 break
 
             last_was_wait = action.get("action") == "wait"
@@ -262,12 +272,99 @@ async def run(url, module_key, action_key, goal, test_mode=False):
                 reporter.finish(result="FAIL", reason="Max steps reached")
                 reporter.save_report()
                 reporter.print_summary()
+            _run_outcome = {"result": "FAIL", "reason": "Max steps reached"}
 
         await asyncio.sleep(POST_RUN_S)
         try:
             await browser.close()
         except Exception as e:
             logger.warning("Browser close raised an error (safe to ignore): %s", e)
+        return _run_outcome
+
+
+# ============================================================
+# NEGATIVE SUITE RUNNER
+# ============================================================
+
+async def run_negative_suite(url, module_key, action_key, selected_scenarios=None):
+    """
+    Run negative scenarios for the given module + action.
+
+    Args:
+        selected_scenarios — list of scenario dicts to run, or None to run all.
+            Each dict must have keys: id, action_key, name, description.
+            Pass the return value of _select_negative_scenarios() here, or
+            leave as None to run every entry in NEGATIVE_CREATE_SCENARIOS.
+
+    Loops through the chosen scenarios, calls run() for each, collects results,
+    and generates an individual report per scenario plus one combined suite report.
+
+    Returns:
+        list of result dicts with keys: id, name, status, reason
+    """
+    from modules.project import NEGATIVE_CREATE_SCENARIOS
+    from report.test_report import generate_suite_report
+
+    suite_name = "{} {}".format(module_key.upper(), action_key.upper())
+    scenarios  = selected_scenarios if selected_scenarios is not None else NEGATIVE_CREATE_SCENARIOS
+    results    = []
+
+    print("\n" + "=" * 50)
+    print("  NEGATIVE TEST SUITE — {}".format(suite_name))
+    print("  Scenarios: {}".format(len(scenarios)))
+    print("=" * 50)
+
+    for i, sc in enumerate(scenarios):
+        print("\n[SUITE] Running {} / {}  —  {} ({})".format(
+            i + 1, len(scenarios), sc["id"], sc["name"]))
+
+        goal      = "{} — {}".format(sc["id"], sc["name"])
+        # Each run() opens a brand-new browser via async_playwright().
+        # keep_session=True would skip reset_nav(), leaving nav_done()=True
+        # as stale state from the previous run — causing all scenarios after
+        # the first to skip navigation to /projects and fill a broken form.
+        keep_sess = False
+
+        outcome = await run(
+            url        = url,
+            module_key = module_key,
+            action_key = sc["action_key"],
+            goal       = goal,
+            test_mode  = True,
+            keep_session = keep_sess,
+        )
+
+        results.append({
+            "id":     sc["id"],
+            "name":   sc["name"],
+            "status": outcome.get("result", "FAIL"),
+            "reason": outcome.get("reason", ""),
+        })
+
+        result_str = outcome.get("result", "FAIL")
+        if result_str == "PASS":
+            icon = "[PASS]"
+        elif result_str == "WARN":
+            icon = "[WARN]"
+        else:
+            icon = "[FAIL]"
+        print("[SUITE] {} {} — {}".format(icon, sc["id"], outcome.get("reason", "")))
+
+    # Combined suite report
+    generate_suite_report(results, suite_name)
+
+    # Print suite summary
+    total  = len(results)
+    passed = sum(1 for r in results if r["status"] == "PASS")
+    failed = sum(1 for r in results if r["status"] == "FAIL")
+    warned = sum(1 for r in results if r["status"] == "WARN")
+    print("\n" + "=" * 50)
+    print("  SUITE SUMMARY — {}".format(suite_name))
+    print("  Total: {}  |  Passed: {}  |  Failed: {}  |  Warned: {}".format(
+        total, passed, failed, warned))
+    print("=" * 50 + "\n")
+
+    return results
 
 
 # ============================================================
@@ -346,13 +443,139 @@ def _select_module():
         print("  [WARN] Invalid choice, please try again")
 
 
+# Action keys that belong exclusively to the negative suite.
+# They are run automatically by run_negative_suite() and must NOT
+# appear in the interactive action menu.
+_NEG_ACTION_KEYS = {
+    "create_empty_name", "create_duplicate",
+    "neg_c_03", "neg_c_04", "neg_c_05",
+    "neg_c_06", "neg_c_07", "neg_c_08",
+}
+
+
+def _select_negative_scenarios():
+    """
+    Display the full list of negative scenarios and let the user choose which to run.
+
+    Accepted inputs:
+      - Enter / 'all'       → every scenario
+      - '7'                 → only scenario 7
+      - '1,3,7'             → scenarios 1, 3 and 7
+      - '1-4'               → scenarios 1 through 4 (inclusive)
+      - '1,3-5,7'           → combinations of the above
+
+    Returns:
+        list of scenario dicts (subset of NEGATIVE_CREATE_SCENARIOS).
+    """
+    from modules.project import NEGATIVE_CREATE_SCENARIOS
+    scenarios = NEGATIVE_CREATE_SCENARIOS
+
+    print("\n" + "-" * 55)
+    print("  NEGATIVE TEST SCENARIOS")
+    print("-" * 55)
+    for i, sc in enumerate(scenarios, start=1):
+        print("  {:>2}  ->  [{}]  {}".format(i, sc["id"], sc["name"]))
+        print("          {}".format(sc["description"]))
+    print("-" * 55)
+    print("  Enter numbers to select (e.g. 7,  1,3,7,  1-4,  all)")
+    print("  Press Enter or type 'all' to run all {} scenarios".format(len(scenarios)))
+    print("-" * 55)
+
+    while True:
+        raw = input("  Selection [all]: ").strip().lower()
+        if not raw or raw == "all":
+            print("  Will run all {} scenarios.".format(len(scenarios)))
+            return list(scenarios)
+
+        selected_indices = set()
+        valid = True
+
+        for part in (p.strip() for p in raw.split(",")):
+            if not part:
+                continue
+            if part.isdigit():
+                idx = int(part)
+                if 1 <= idx <= len(scenarios):
+                    selected_indices.add(idx)
+                else:
+                    print("  [WARN] {} is out of range (1-{})".format(part, len(scenarios)))
+                    valid = False
+                    break
+            elif "-" in part:
+                bounds = part.split("-", 1)
+                if len(bounds) == 2 and bounds[0].isdigit() and bounds[1].isdigit():
+                    lo, hi = int(bounds[0]), int(bounds[1])
+                    if 1 <= lo <= hi <= len(scenarios):
+                        selected_indices.update(range(lo, hi + 1))
+                    else:
+                        print("  [WARN] Range {}-{} is invalid (valid: 1-{})".format(
+                            lo, hi, len(scenarios)))
+                        valid = False
+                        break
+                else:
+                    print("  [WARN] '{}' is not a valid range — use N-M (e.g. 2-5)".format(part))
+                    valid = False
+                    break
+            else:
+                print("  [WARN] '{}' is not a valid entry".format(part))
+                valid = False
+                break
+
+        if not valid:
+            continue
+
+        if not selected_indices:
+            print("  [WARN] No scenarios selected — please try again")
+            continue
+
+        selected = [scenarios[i - 1] for i in sorted(selected_indices)]
+        print("\n  Will run {} scenario(s): {}".format(
+            len(selected), ", ".join(s["id"] for s in selected)))
+        return selected
+
+
+def _select_test_type(action_key="create"):
+    """
+    Prompt for test type.
+    Negative / Both are only available when action_key == 'create'
+    (negative scenarios are implemented for Create only so far).
+    """
+    neg_available = (action_key == "create")
+
+    print("\n" + "-" * 45)
+    print("  TEST TYPE")
+    print("-" * 45)
+    print("  1  ->  Positive  (existing flow)")
+    if neg_available:
+        print("  2  ->  Negative  (all negative scenarios)")
+        print("  3  ->  Both      (positive then negative)")
+    else:
+        print("  [NOTE] Negative testing is only available for the Create action")
+    print("-" * 45)
+    while True:
+        tt = input("  Select test type [1]: ").strip()
+        if tt in ("", "1"):
+            return "positive"
+        if tt == "2" and neg_available:
+            return "negative"
+        if tt == "3" and neg_available:
+            return "both"
+        if tt in ("2", "3") and not neg_available:
+            print("  [WARN] Negative testing not available for this action — running Positive")
+            return "positive"
+        print("  [WARN] Invalid choice, please enter 1{}".format(", 2 or 3" if neg_available else ""))
+
+
 def _select_action(module_key, module_info):
     _, _, ACTIONS, ACTION_KEYS = _load_module_handler(module_key)
+
+    # Hide internal negative-suite action keys from the interactive menu
+    visible_keys = [k for k in ACTION_KEYS if k not in _NEG_ACTION_KEYS]
 
     print("\n" + "-" * 45)
     print("  {} — ACTION SELECT".format(module_info["name"].upper()))
     print("-" * 45)
-    for i, key in enumerate(ACTION_KEYS, start=1):
+    for i, key in enumerate(visible_keys, start=1):
         print("  {}  ->  {}".format(i, ACTIONS[key]["label"]))
     print("-" * 45)
 
@@ -361,9 +584,9 @@ def _select_action(module_key, module_info):
         action_key = None
         if choice.isdigit():
             idx = int(choice) - 1
-            if 0 <= idx < len(ACTION_KEYS):
-                action_key = ACTION_KEYS[idx]
-        elif choice.lower() in ACTIONS:
+            if 0 <= idx < len(visible_keys):
+                action_key = visible_keys[idx]
+        elif choice.lower() in ACTIONS and choice.lower() not in _NEG_ACTION_KEYS:
             action_key = choice.lower()
 
         if action_key:
@@ -402,7 +625,13 @@ def _select_action(module_key, module_info):
 
 def get_inputs():
     """
-    Collect only module/action inputs from CLI.
+    Collect module / action / test-type inputs from CLI.
+
+    Order:
+      1. Module select
+      2. Action select   (create / update / delete  — NEG internal keys hidden)
+      3. Test type       (Negative / Both only offered when action == create)
+
     Email, password, and URL are read from config — no prompts for those.
     """
     print("\n" + "=" * 45)
@@ -418,15 +647,27 @@ def get_inputs():
 
     module_key, module_info = _select_module()
     action_key, goal        = _select_action(module_key, module_info)
+    test_type               = _select_test_type(action_key)
+
+    # When running negative scenarios, let the user pick which ones to execute.
+    neg_selection = None
+    if test_type in ("negative", "both"):
+        neg_selection = _select_negative_scenarios()
 
     print("\n" + "=" * 45)
-    print("  URL    : {}".format(BASE_URL))
-    print("  Email  : {}".format(LOGIN_EMAIL))
-    print("  Module : {}".format(module_info["name"]))
-    print("  Goal   : {}".format(goal))
+    print("  URL       : {}".format(BASE_URL))
+    print("  Email     : {}".format(LOGIN_EMAIL))
+    print("  Module    : {}".format(module_info["name"]))
+    print("  Action    : {}".format(action_key))
+    print("  Test Type : {}".format(test_type.upper()))
+    if test_type in ("positive", "both"):
+        print("  Goal      : {}".format(goal))
+    if neg_selection is not None:
+        print("  Neg. Scenarios : {}".format(
+            ", ".join(s["id"] for s in neg_selection)))
     print("=" * 45 + "\n")
 
-    return module_key, action_key, goal
+    return module_key, action_key, goal, test_type, neg_selection
 
 
 # ============================================================
@@ -434,13 +675,45 @@ def get_inputs():
 # ============================================================
 
 if __name__ == "__main__":
-    module_key, action_key, goal = get_inputs()
-    asyncio.run(
-        run(
-            url        = BASE_URL,
-            module_key = module_key,
-            action_key = action_key,
-            goal       = goal,
-            test_mode  = True,
+    module_key, action_key, goal, test_type, neg_selection = get_inputs()
+
+    if test_type == "positive":
+        asyncio.run(
+            run(
+                url        = BASE_URL,
+                module_key = module_key,
+                action_key = action_key,
+                goal       = goal,
+                test_mode  = True,
+            )
         )
-    )
+
+    elif test_type == "negative":
+        asyncio.run(
+            run_negative_suite(
+                url                = BASE_URL,
+                module_key         = module_key,
+                action_key         = action_key,
+                selected_scenarios = neg_selection,
+            )
+        )
+
+    elif test_type == "both":
+        # Run positive first, then the selected negative scenarios
+        asyncio.run(
+            run(
+                url        = BASE_URL,
+                module_key = module_key,
+                action_key = action_key,
+                goal       = goal,
+                test_mode  = True,
+            )
+        )
+        asyncio.run(
+            run_negative_suite(
+                url                = BASE_URL,
+                module_key         = module_key,
+                action_key         = action_key,
+                selected_scenarios = neg_selection,
+            )
+        )

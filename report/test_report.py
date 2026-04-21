@@ -409,18 +409,23 @@ class TestReporter:
             self.log_error("Step {}".format(last["step"]),
                            safe_err, last.get("action", ""))
 
-        # Duplicate detection
-        texts_to_check = [error or ""]
-        for sub in last.get("sub_steps", []):
-            texts_to_check.append(sub.get("error") or "")
-        combined = " ".join(texts_to_check).lower()
-        if any(phrase in combined for phrase in self._DUPLICATE_PHRASES):
-            self._duplicate_detected = True
-            last["error"] = last.get("error") or "Duplicate detected"
-            self.log_error(
-                "Step {}".format(last["step"]),
-                "Duplicate: {}".format(error or "already exists"),
-                last.get("action", ""))
+        # Duplicate detection — only when the step PASSED (i.e. the framework
+        # thinks it succeeded but the DOM showed a duplicate/already-exists error).
+        # Skip when success=False: the step already failed, and the error text
+        # may contain words like "duplicate" as part of the test scenario description
+        # rather than as an app-reported validation message.
+        if success:
+            texts_to_check = [error or ""]
+            for sub in last.get("sub_steps", []):
+                texts_to_check.append(sub.get("error") or "")
+            combined = " ".join(texts_to_check).lower()
+            if any(phrase in combined for phrase in self._DUPLICATE_PHRASES):
+                self._duplicate_detected = True
+                last["error"] = last.get("error") or "Duplicate detected"
+                self.log_error(
+                    "Step {}".format(last["step"]),
+                    "Duplicate: {}".format(error or "already exists"),
+                    last.get("action", ""))
 
         # Flush pending sub-steps only for non-form steps
         # (form steps manage their own sub-step statuses via log_sub_step)
@@ -1011,4 +1016,195 @@ def _build_html(report: dict) -> str:
         total=total, gpass=gpass, gfail=gfail, errc=errc,
         err_section=err_section,
         step_rows=step_rows,
+    )
+
+
+# ============================================================
+# SUITE REPORT — combined report for negative test suites
+# ============================================================
+
+def generate_suite_report(results: list, suite_name: str,
+                           output_dir: str = "reports") -> tuple:
+    """
+    Generate a combined HTML + JSON suite report for a negative test run.
+
+    Args:
+        results    — list of dicts with keys: id, name, status (PASS|FAIL|WARN), reason, steps
+        suite_name — human-readable name, e.g. "PROJECT CREATE"
+        output_dir — folder to write reports into
+
+    Returns:
+        (json_path, html_path)
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    total  = len(results)
+    passed = sum(1 for r in results if r.get("status") == "PASS")
+    failed = sum(1 for r in results if r.get("status") == "FAIL")
+    warned = sum(1 for r in results if r.get("status") == "WARN")
+
+    suite_data = {
+        "suite_name": suite_name,
+        "generated":  datetime.now().isoformat(),
+        "summary":    {"total": total, "passed": passed, "failed": failed, "warned": warned},
+        "scenarios":  results,
+    }
+
+    slug = suite_name.lower().replace(" ", "_")
+    jf   = os.path.join(output_dir, "neg_suite_{}_{}.json".format(slug, ts))
+    with open(jf, "w", encoding="utf-8") as fh:
+        json.dump(suite_data, fh, indent=2, default=str)
+    print("[SUITE REPORT] JSON -> {}".format(jf))
+
+    hf = os.path.join(output_dir, "neg_suite_{}_{}.html".format(slug, ts))
+    with open(hf, "w", encoding="utf-8") as fh:
+        fh.write(_build_suite_html(suite_data))
+    print("[SUITE REPORT] HTML -> {}".format(hf))
+
+    return jf, hf
+
+
+def _build_suite_html(data: dict) -> str:
+    name    = data.get("suite_name", "")
+    summary = data.get("summary", {})
+    results = data.get("scenarios", [])
+    total   = summary.get("total", 0)
+    passed  = summary.get("passed", 0)
+    failed  = summary.get("failed", 0)
+    warned  = summary.get("warned", 0)
+    gen     = (data.get("generated") or "")[:19].replace("T", " ")
+
+    rows = ""
+    for sc in results:
+        status = sc.get("status", "?")
+        if status == "PASS":
+            rc_s, ico = "#16a34a", "&#10003;"
+        elif status == "FAIL":
+            rc_s, ico = "#dc2626", "&#10007;"
+        elif status == "WARN":
+            rc_s, ico = "#d97706", "&#9888;"
+        else:
+            rc_s, ico = "#64748b", "&#8226;"
+
+        steps = sc.get("steps") or []
+        steps_html = ""
+        if steps:
+            items = "".join(
+                "<li>{}</li>".format(s.get("description", str(s)))
+                for s in steps
+            )
+            steps_html = "<details><summary>Steps ({})</summary><ol>{}</ol></details>".format(
+                len(steps), items)
+
+        rows += """
+        <tr>
+          <td style="width:100px;font-weight:700;color:#475569">{sc_id}</td>
+          <td>{sc_name}</td>
+          <td style="width:90px;text-align:center">
+            <span style="display:inline-block;padding:3px 14px;border-radius:14px;
+                         font-size:12px;font-weight:700;color:white;background:{rc_s}">
+              {ico}&nbsp;{status}
+            </span>
+          </td>
+          <td style="font-size:12px;color:#334155">{reason}{steps}</td>
+        </tr>""".format(
+            sc_id=sc.get("id", ""),
+            sc_name=sc.get("name", ""),
+            rc_s=rc_s, ico=ico, status=status,
+            reason=sc.get("reason", ""),
+            steps=steps_html)
+
+    return """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Negative Test Suite &mdash; {name}</title>
+<style>
+  *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0 }}
+  body {{
+    font-family: 'Segoe UI', system-ui, Arial, sans-serif;
+    background: #f0f4f8; color: #1a202c;
+    padding: 32px 24px; min-height: 100vh;
+  }}
+  .banner {{
+    background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+    color: white; border-radius: 14px; padding: 28px 36px;
+    margin-bottom: 28px; box-shadow: 0 4px 20px rgba(0,0,0,0.18);
+  }}
+  .banner h1 {{ font-size: 20px; font-weight: 700; margin-bottom: 6px; }}
+  .banner .sub {{ font-size: 12px; color: #94a3b8; letter-spacing: 1px;
+                  text-transform: uppercase; margin-bottom: 4px; }}
+  .banner .ts  {{ font-size: 12px; color: #64748b; }}
+  .cards {{
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 16px; margin-bottom: 28px;
+  }}
+  .card {{
+    background: white; border-radius: 12px; padding: 20px 18px;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.07); border-top: 4px solid #e2e8f0;
+  }}
+  .card.c-total {{ border-color: #0ea5e9; }}
+  .card.c-pass  {{ border-color: #16a34a; }}
+  .card.c-fail  {{ border-color: #dc2626; }}
+  .card.c-warn  {{ border-color: #d97706; }}
+  .card .c-num  {{ font-size: 32px; font-weight: 800; color: #1e293b; }}
+  .card.c-pass .c-num {{ color: #16a34a; }}
+  .card.c-fail .c-num {{ color: #dc2626; }}
+  .card.c-warn .c-num {{ color: #d97706; }}
+  .card .c-lbl  {{
+    font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.6px; color: #64748b; margin-top: 4px;
+  }}
+  .data-table {{
+    width: 100%; border-collapse: collapse; background: white;
+    border-radius: 10px; overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  }}
+  .data-table thead tr {{
+    background: #1e293b; color: #e2e8f0;
+    font-size: 12px; letter-spacing: 0.5px; text-transform: uppercase;
+  }}
+  .data-table th, .data-table td {{
+    padding: 11px 16px; text-align: left; font-size: 13px;
+  }}
+  .data-table tbody tr {{ border-bottom: 1px solid #f1f5f9; }}
+  .data-table tbody tr:last-child {{ border-bottom: none; }}
+  .data-table tbody tr:hover {{ background: #f8fafc; }}
+  details summary {{ cursor: pointer; color: #0369a1; font-size: 12px; margin-top: 4px; }}
+  details ol {{ margin-top: 6px; padding-left: 18px; font-size: 11px; color: #475569; }}
+  .footer {{ text-align: center; font-size: 11px; color: #94a3b8; margin-top: 16px; }}
+</style>
+</head>
+<body>
+
+<div class="banner">
+  <div class="sub">Orbis &nbsp;&middot;&nbsp; Negative Test Suite Report</div>
+  <h1>NEGATIVE TEST SUITE &mdash; {name}</h1>
+  <div class="ts">Generated: {gen}</div>
+</div>
+
+<div class="cards">
+  <div class="card c-total"><div class="c-num">{total}</div><div class="c-lbl">Total</div></div>
+  <div class="card c-pass"><div class="c-num">{passed}</div><div class="c-lbl">Passed</div></div>
+  <div class="card c-fail"><div class="c-num">{failed}</div><div class="c-lbl">Failed</div></div>
+  <div class="card c-warn"><div class="c-num">{warned}</div><div class="c-lbl">Warned</div></div>
+</div>
+
+<table class="data-table">
+  <thead>
+    <tr><th>ID</th><th>Scenario</th><th>Result</th><th>Reason / Steps</th></tr>
+  </thead>
+  <tbody>{rows}</tbody>
+</table>
+
+<div class="footer">Generated by Orbis Automation Tool &nbsp;&middot;&nbsp; {gen}</div>
+
+</body>
+</html>""".format(
+        name=name, gen=gen,
+        total=total, passed=passed, failed=failed, warned=warned,
+        rows=rows,
     )

@@ -1486,7 +1486,7 @@ async def _decide_approve_timesheet(els, url, goal, page=None):
 # PUBLIC ENTRY POINT
 # ============================================================
 
-def reset_state():
+def reset_state(keep_session=False):
     reset_login()
     reset_nav()
     _ts_st.reset()
