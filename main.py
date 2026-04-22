@@ -372,6 +372,87 @@ async def run_negative_suite(url, module_key, action_key, selected_scenarios=Non
 
 
 # ============================================================
+# RUN ALL MODULES
+# ============================================================
+
+async def run_all_modules(url, items):
+    """
+    Run every (module_key, action_key, goal) item in sequence.
+    Errors are caught per-item and logged — execution always continues.
+    Generates a single consolidated suite report at the end.
+
+    Args:
+        items — list of dicts from _collect_run_all_inputs():
+                {"module_key", "action_key", "goal", "label"}
+
+    Returns:
+        list of result dicts: {"id", "name", "status", "reason", "steps"}
+    """
+    from report.test_report import generate_suite_report
+
+    total   = len(items)
+    results = []
+
+    print("\n" + "=" * 60)
+    print("  RUN ALL — {} action(s) across {} module(s)".format(
+        total, len(set(i["module_key"] for i in items))))
+    print("=" * 60)
+
+    for idx, item in enumerate(items):
+        module_key = item["module_key"]
+        action_key = item["action_key"]
+        goal       = item["goal"]
+        label      = item["label"]
+        run_id     = "{}.{}".format(module_key, action_key)
+
+        print("\n[RUN-ALL] ({}/{}) {}".format(idx + 1, total, label))
+        print("[RUN-ALL] goal: {}".format(goal))
+
+        try:
+            outcome = await run(
+                url          = url,
+                module_key   = module_key,
+                action_key   = action_key,
+                goal         = goal,
+                test_mode    = True,
+                keep_session = False,
+            )
+            results.append({
+                "id":     run_id,
+                "name":   label,
+                "status": outcome.get("result", "FAIL"),
+                "reason": outcome.get("reason", ""),
+            })
+            icon = "[PASS]" if outcome.get("result") == "PASS" else "[FAIL]"
+            print("[RUN-ALL] {} {} — {}".format(icon, run_id, outcome.get("reason", "")))
+
+        except Exception as exc:
+            err_msg = str(exc)
+            print("[RUN-ALL] [ERR] {} — {}".format(run_id, err_msg))
+            results.append({
+                "id":     run_id,
+                "name":   label,
+                "status": "FAIL",
+                "reason": "Unexpected error: {}".format(err_msg),
+            })
+
+    # ── Consolidated suite report ─────────────────────────────
+    generate_suite_report(results, "ALL MODULES RUN")
+
+    passed = sum(1 for r in results if r["status"] == "PASS")
+    failed = sum(1 for r in results if r["status"] == "FAIL")
+    warned = sum(1 for r in results if r["status"] == "WARN")
+
+    print("\n" + "=" * 60)
+    print("  RUN-ALL COMPLETE")
+    print("  Total: {}  |  Passed: {}  |  Failed: {}  |  Warned: {}".format(
+        total, passed, failed, warned))
+    print("=" * 60 + "\n")
+
+    return results
+
+
+# ============================================================
 # GOAL BUILDERS
 # ============================================================
 
@@ -431,12 +512,15 @@ def _select_module():
     print("\n" + "-" * 45)
     print("  MODULE SELECT")
     print("-" * 45)
+    print("  0  ->  Run All Modules")
     for i, key in enumerate(MODULE_KEYS, start=1):
         print("  {}  ->  {}".format(i, MODULES[key]["name"]))
     print("-" * 45)
 
     while True:
-        choice = input("  Select module (number or name): ").strip()
+        choice = input("  Select module (number or name, 0 = Run All): ").strip()
+        if choice == "0":
+            return "__all__", None
         if choice.isdigit():
             idx = int(choice) - 1
             if 0 <= idx < len(MODULE_KEYS):
@@ -627,6 +711,91 @@ def _select_action(module_key, module_info):
     return action_key, goal
 
 
+def _collect_run_all_inputs():
+    """
+    Iterate every module and every non-NEG action_key.
+    - needs_target=False  → goal built automatically, no prompt.
+    - needs_target=True/list → prompt user once per required field.
+      Pressing Enter (blank) skips that action entirely.
+
+    Returns:
+        list of {"module_key", "action_key", "goal", "label"}
+    """
+    items = []
+
+    for module_key in MODULE_KEYS:
+        _, _, ACTIONS, ACTION_KEYS = _load_module_handler(module_key)
+        module_info  = MODULES[module_key]
+        visible_keys = [k for k in ACTION_KEYS if k not in _NEG_ACTION_KEYS]
+
+        for action_key in visible_keys:
+            info  = ACTIONS[action_key]
+            nt    = info["needs_target"]
+            label = "{} → {}".format(module_info["name"], info["label"])
+
+            extra_parts = []
+
+            if nt is False:
+                # Auto-runnable — build goal the same way _select_action does
+                goal = "{} {}".format(action_key, module_key)
+
+            elif nt is True:
+                print("\n  [{}.{}] {}".format(module_key, action_key, info["label"]))
+                val = input(
+                    "    Enter {} name (blank = skip): ".format(module_info["name"])
+                ).strip()
+                if not val:
+                    print("    → Skipped")
+                    continue
+                extra_parts.append(val)
+                goal = "{} {}".format(action_key, module_key)
+                goal += " " + " | ".join(extra_parts)
+
+            elif isinstance(nt, list):
+                print("\n  [{}.{}] {}".format(module_key, action_key, info["label"]))
+                skip = False
+                for prompt_label in nt:
+                    val = input(
+                        "    Enter {} (blank = skip action): ".format(prompt_label)
+                    ).strip()
+                    if not val:
+                        print("    → Skipped")
+                        skip = True
+                        break
+                    extra_parts.append(val)
+                if skip:
+                    continue
+
+                # Reuse same goal-building logic as _select_action
+                if action_key == "add_job" and len(extra_parts) == 2:
+                    goal = "add_job job {} | {}".format(extra_parts[0], extra_parts[1])
+                elif action_key == "add_activities" and len(extra_parts) == 3:
+                    goal = "add_activities project {} | job {} | activities {}".format(
+                        extra_parts[0], extra_parts[1], extra_parts[2])
+                elif action_key == "add_timesheet":
+                    goal = _build_timesheet_goal(extra_parts)
+                elif action_key == "clone_last_week":
+                    goal = _build_clone_goal(extra_parts)
+                elif action_key == "approve_timesheet":
+                    goal = _build_approval_goal(extra_parts)
+                else:
+                    goal = "{} {}".format(action_key, module_key)
+                    if extra_parts:
+                        goal += " " + " | ".join(extra_parts)
+            else:
+                # Unknown needs_target type — skip safely
+                continue
+
+            items.append({
+                "module_key": module_key,
+                "action_key": action_key,
+                "goal":       goal,
+                "label":      label,
+            })
+
+    return items
+
+
 def get_inputs():
     """
     Collect module / action / test-type inputs from CLI.
@@ -650,7 +819,25 @@ def get_inputs():
         print("  [SESSION] No session — auto-login will run once")
 
     module_key, module_info = _select_module()
-    action_key, goal        = _select_action(module_key, module_info)
+
+    # ── Run All Modules mode ──────────────────────────────────
+    if module_key == "__all__":
+        print("\n" + "-" * 55)
+        print("  RUN ALL MODULES")
+        print("  Actions needing input will be prompted now.")
+        print("  Leave any prompt blank to skip that action.")
+        print("-" * 55)
+        items = _collect_run_all_inputs()
+
+        print("\n" + "=" * 55)
+        print("  RUN-ALL QUEUE ({} action(s))".format(len(items)))
+        for item in items:
+            print("    • {}".format(item["label"]))
+        print("=" * 55 + "\n")
+
+        return "__all__", None, None, "run_all", items
+
+    action_key, goal = _select_action(module_key, module_info)
     test_type               = _select_test_type(action_key)
 
     # When running negative scenarios, let the user pick which ones to execute.
@@ -681,7 +868,15 @@ def get_inputs():
 if __name__ == "__main__":
     module_key, action_key, goal, test_type, neg_selection = get_inputs()
 
-    if test_type == "positive":
+    if test_type == "run_all":
+        asyncio.run(
+            run_all_modules(
+                url   = BASE_URL,
+                items = neg_selection,   # holds the items list from _collect_run_all_inputs
+            )
+        )
+
+    elif test_type == "positive":
         asyncio.run(
             run(
                 url        = BASE_URL,

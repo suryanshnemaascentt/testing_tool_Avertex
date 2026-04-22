@@ -20,6 +20,7 @@ NAV_FRAGMENT = "projects"
 MODULE_META = {
     "name":     "Project",
     "fragment": NAV_FRAGMENT,
+    "order":    1,
 }
 
 ACTIONS = {
