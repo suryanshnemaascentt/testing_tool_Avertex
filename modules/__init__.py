@@ -25,7 +25,7 @@ for _mi in pkgutil.iter_modules([str(pathlib.Path(__file__).parent)]):
     except Exception:
         pass
 
-MODULE_KEYS = list(MODULES)
+MODULE_KEYS = sorted(MODULES, key=lambda k: MODULES[k].get("order", 99))
 try:
     del _mi, _m
 except NameError:

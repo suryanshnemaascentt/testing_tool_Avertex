@@ -12,6 +12,7 @@ NAV_FRAGMENT = "timesheet"
 MODULE_META = {
     "name":     "Timesheet",
     "fragment": NAV_FRAGMENT,
+    "order":    4,
 }
 
 ACTIONS = {
@@ -280,7 +281,8 @@ class _ApprovalState:
         self._req_wait             = 0
         self._action_wait          = 0
         self._verify_wait          = 0
-        self.MAX_WAIT              = 6
+        self._click_err_count      = 0
+        self.MAX_WAIT              = 2
 
     def reset(self):
         self.__init__()
@@ -929,11 +931,13 @@ async def _find_pending_row(page, project_name: str):
                 return approve_btn, reject_btn
 
         elif strategy == "svg_scan":
-            # Re-scan with Playwright to get handles
+            # Re-scan with Playwright to get handles — skip disabled buttons
             all_btns = await page.query_selector_all("button")
             approve_btn = None
             reject_btn  = None
             for btn in all_btns:
+                if await btn.get_attribute("disabled") is not None:
+                    continue
                 paths = await btn.query_selector_all("path")
                 for p in paths:
                     d = (await p.get_attribute("d") or "")
@@ -1042,7 +1046,7 @@ async def _decide_approve_timesheet(els, url, goal, page=None):
                     return false;
                 }""")
                 if clicked:
-                    await page.wait_for_timeout(1500)
+                    await page.wait_for_timeout(600)
                     s.approval_tab_clicked = True
                     print("[APPR] ✓ Tab clicked via JS")
                     return {"action": "wait", "seconds": 0}
@@ -1079,7 +1083,7 @@ async def _decide_approve_timesheet(els, url, goal, page=None):
                     if proj_btn:
                         await proj_btn.scroll_into_view_if_needed()
                         await proj_btn.click()
-                        await page.wait_for_timeout(700)
+                        await page.wait_for_timeout(300)
                         print("[APPR] ✓ Projects dropdown opened")
                     else:
                         s._proj_wait += 1
@@ -1100,7 +1104,7 @@ async def _decide_approve_timesheet(els, url, goal, page=None):
                         await inp.click()
                         await page.wait_for_timeout(200)
                         await inp.fill(s.project_name)
-                        await page.wait_for_timeout(800)
+                        await page.wait_for_timeout(400)
                         s.project_filtered = True
                         print("[APPR] ✓ Project typed: '{}'".format(s.project_name))
                     else:
@@ -1157,7 +1161,7 @@ async def _decide_approve_timesheet(els, url, goal, page=None):
                     return {"action": "wait", "seconds": 1}
 
                 await page.keyboard.press("Escape")
-                await page.wait_for_timeout(600)
+                await page.wait_for_timeout(300)
 
             except Exception as e:
                 print("[APPR] Project filter err: {}".format(e))
@@ -1182,14 +1186,14 @@ async def _decide_approve_timesheet(els, url, goal, page=None):
                     if req_btn:
                         await req_btn.scroll_into_view_if_needed()
                         await req_btn.click()
-                        await page.wait_for_timeout(700)
+                        await page.wait_for_timeout(300)
                         inp = await page.query_selector(
                             "input[placeholder*='Search requested by' i]")
                         if inp:
                             await inp.click()
                             await page.wait_for_timeout(200)
                             await inp.fill(s.requested_by)
-                            await page.wait_for_timeout(700)
+                            await page.wait_for_timeout(400)
                             s.requester_filtered = True
                             print("[APPR] ✓ Requester typed: '{}'".format(
                                 s.requested_by))
@@ -1296,16 +1300,16 @@ async def _decide_approve_timesheet(els, url, goal, page=None):
                     else:
                         print("[APPR] ✓ Requester checkbox clicked: '{}'".format(
                             clicked_via_js))
-                    await page.wait_for_timeout(400)
+                    await page.wait_for_timeout(200)
 
                     # Close dropdown with Escape so filter applies
                     try:
                         await page.keyboard.press("Escape")
-                        await page.wait_for_timeout(600)
+                        await page.wait_for_timeout(300)
                         print("[APPR] ✓ Requested By dropdown closed via Escape")
                     except Exception as close_err:
                         print("[APPR] Dropdown close err: {}".format(close_err))
-                        await page.wait_for_timeout(300)
+                        await page.wait_for_timeout(200)
 
                     s.requester_checked = True
                     checked = True
@@ -1321,7 +1325,7 @@ async def _decide_approve_timesheet(els, url, goal, page=None):
                         s.requester_checked = True
                     return {"action": "wait", "seconds": 1}
 
-                await page.wait_for_timeout(300)
+                await page.wait_for_timeout(200)
 
             except Exception as e:
                 print("[APPR] Requester filter err: {}".format(e))
@@ -1349,8 +1353,8 @@ async def _decide_approve_timesheet(els, url, goal, page=None):
 
                 if btn:
                     await btn.scroll_into_view_if_needed()
-                    await btn.click()
-                    await page.wait_for_timeout(1500)
+                    await btn.click(timeout=5000)
+                    await page.wait_for_timeout(600)
                     print("[APPR] ✓ {} button clicked".format(
                         s.action.capitalize()))
                     s.action_clicked = True
@@ -1423,7 +1427,15 @@ async def _decide_approve_timesheet(els, url, goal, page=None):
                 return {"action": "wait", "seconds": 1}
 
             except Exception as e:
-                print("[APPR] Action click err: {}".format(e))
+                s._click_err_count += 1
+                print("[APPR] Action click err ({}/2): {}".format(
+                    s._click_err_count, e))
+                if s._click_err_count >= 2:
+                    msg = "Button found but not clickable after 2 attempts — element disabled"
+                    print("[APPR] ✗ Giving up — {}".format(msg))
+                    if r:
+                        r.update_last_step(False, error=msg)
+                    return {"action": "done", "result": "FAIL", "reason": msg}
                 return {"action": "wait", "seconds": 1}
 
         return {"action": "wait", "seconds": 1}

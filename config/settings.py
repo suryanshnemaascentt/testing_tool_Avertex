@@ -56,6 +56,6 @@ VIEWPORT      = {"width": 1440, "height": 900}
 # HEADLESS defaults True so CI/production never opens a display.
 # Set HEADLESS=false in .env (or env) for local development.
 HEADLESS      = os.getenv("HEADLESS", "true").lower() == "true"
-DOM_SETTLE_MS = 5000    # max time to wait for DOM to settle per step
+DOM_SETTLE_MS = 2000    # max time to wait for DOM to settle per step
 SSO_SETTLE_MS =  800    # extra wait on SSO pages after inputs appear
-POST_RUN_S    =    3    # seconds to keep browser open after the run finishes
+POST_RUN_S    =    1.5   # seconds to keep browser open after the run finishes
