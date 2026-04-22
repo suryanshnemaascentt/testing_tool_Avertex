@@ -61,12 +61,42 @@ ACTIONS = {
         "needs_target": False,
     },
     "neg_c_07": {
-        "label":        "[NEG-C-07] Zero budget — WARN if allowed, PASS if blocked",
+        "label":        "[NEG-C-07] Zero budget — FAIL if allowed, PASS if blocked",
         "needs_target": False,
     },
     "neg_c_08": {
         "label":        "[NEG-C-08] Same start and end date — PASS if allowed or validated",
         "needs_target": False,
+    },
+    # ── Update negative tests ─────────────────────────────────
+    "neg_u_01": {
+        "label":        "[NEG-U-01] Clear project name then Save — expects validation error",
+        "needs_target": False,
+    },
+    "neg_u_02": {
+        "label":        "[NEG-U-02] Enter negative Planned Budget — expects validation/rejection",
+        "needs_target": False,
+    },
+    "neg_u_03": {
+        "label":        "[NEG-U-03] Link estimation already linked to another project — expects rejection",
+        "needs_target": False,
+    },
+    "neg_u_04": {
+        "label":        "[NEG-U-04] Cancel after making changes — expects changes discarded",
+        "needs_target": False,
+    },
+    # ── Delete negative tests ─────────────────────────────────
+    "neg_d_01": {
+        "label":        "[NEG-D-01] Delete project with logged hours — expects block",
+        "needs_target": True,
+    },
+    "neg_d_02": {
+        "label":        "[NEG-D-02] Click Delete then Cancel — expects project preserved",
+        "needs_target": True,
+    },
+    "neg_d_03": {
+        "label":        "[NEG-D-03] Delete project then access old URL — expects 404/redirect",
+        "needs_target": True,
     },
 }
 
@@ -124,6 +154,8 @@ def scan_dom(dom):
         "delete_btn":          None,   # Delete button inside project view
         "confirm_btn":         None,   # Confirm / Yes dialog button
         "save_btn":            None,   # Save Project form button
+        "cancel_btn":          None,   # Cancel button on the edit form
+        "deny_btn":            None,   # No/Cancel on a confirmation dialog
         "autocomplete_inputs": [],     # MUI autocomplete inputs (client, estimation, sow)
         "mui_selects":         [],     # MUI div[role=combobox] selects
         "save_toast":          None,   # saved/updated successfully toast
@@ -169,6 +201,12 @@ def scan_dom(dom):
 
             elif eid == "project-form-save" or "save project" in lv:
                 result["save_btn"] = el
+
+            elif (text == "cancel" or label == "cancel") and not result["cancel_btn"]:
+                result["cancel_btn"] = el
+
+            elif text in ("no", "no, keep it", "keep", "go back") and not result["deny_btn"]:
+                result["deny_btn"] = el
 
         # ── Search input ──────────────────────────────────────
         if (tag == "input" and etype in ("text", "search")
@@ -1018,6 +1056,13 @@ def reset_state(keep_session=False):
     _neg_c06_st.reset()
     _neg_c07_st.reset()
     _neg_c08_st.reset()
+    _neg_u01_st.reset()
+    _neg_u02_st.reset()
+    _neg_u03_st.reset()
+    _neg_u04_st.reset()
+    _neg_d01_st.reset()
+    _neg_d02_st.reset()
+    _neg_d03_st.reset()
     print("[STATE] Project module reset (keep_session={})".format(keep_session))
 
 
@@ -1057,6 +1102,14 @@ async def decide_action(action, dom, url, goal="", email=None, password=None,pag
         return await _decide_create_duplicate(els, url)
     if action in ("neg_c_03", "neg_c_04", "neg_c_05", "neg_c_06", "neg_c_07", "neg_c_08"):
         return await _decide_neg_create_generic(els, url, action)
+    if action in ("neg_u_01", "neg_u_02", "neg_u_03", "neg_u_04"):
+        return await _decide_neg_update_generic(els, url, action)
+    if action == "neg_d_01":
+        return await _decide_neg_d01(els, url, goal)
+    if action == "neg_d_02":
+        return await _decide_neg_d02(els, url, goal)
+    if action == "neg_d_03":
+        return await _decide_neg_d03(els, url, goal)
 
     return {"action": "wait", "seconds": 1}
 
@@ -1158,8 +1211,8 @@ _NEG_STATE_MAP = {
     "neg_c_08": _neg_c08_st,
 }
 
-# Scenarios where a save toast = WARN (not necessarily a bug)
-_NEG_WARN_ON_SUCCESS = {"neg_c_07"}
+# All unexpected saves are treated as FAIL
+_NEG_WARN_ON_SUCCESS = set()
 # Scenarios where a save toast = PASS (both dates same is legally valid)
 _NEG_PASS_ON_SUCCESS = {"neg_c_08"}
 
@@ -1211,6 +1264,34 @@ def _build_neg_c08_params(els):
     return p
 
 
+# ── Update negative params builders ──────────────────────────
+
+def _build_neg_u01_params(els):
+    """Clear project name (empty string) — validation should block save."""
+    p = _build_update_params("", els)
+    p["project_name"] = ""
+    p["description"]  = "NEG-U-01: Project name cleared"
+    return p
+
+
+def _build_neg_u02_params(els):
+    """Negative budget value — validation should reject or warn."""
+    today = datetime.now()
+    p = _build_update_params("NegU02_{}".format(today.strftime("%H%M%S")), els)
+    p["budget"] = "-5000"
+    return p
+
+
+def _build_neg_u03_params(els):
+    """Link the first available estimation (may already be linked to another project)."""
+    today = datetime.now()
+    p = _build_update_params("NegU03_{}".format(today.strftime("%H%M%S")), els)
+    # estimation_search="a" is already set by _base_params; first autocomplete result
+    # is likely already assigned — expect rejection or WARN if app allows multi-linking
+    p["estimation_search"] = "a"
+    return p
+
+
 _NEG_PARAMS_MAP = {
     "neg_c_03": _build_neg_c03_params,
     "neg_c_04": _build_neg_c04_params,
@@ -1227,14 +1308,12 @@ async def _decide_neg_create_generic(els, url, sc_key):
 
     Flow: wait for New Project btn → click → fill form with bad data → verify outcome.
     PASS  — validation/error message shown          (expected rejection)
-    WARN  — save succeeded but scenario allows it   (e.g. zero budget)
     PASS  — save succeeded and scenario allows it   (e.g. same dates)
     FAIL  — save succeeded when it should not have
     """
     s = _NEG_STATE_MAP[sc_key]
     r = get_reporter()
     build_params = _NEG_PARAMS_MAP[sc_key]
-    warn_on_ok   = sc_key in _NEG_WARN_ON_SUCCESS
     pass_on_ok   = sc_key in _NEG_PASS_ON_SUCCESS
 
     if s.submitted:
@@ -1274,12 +1353,6 @@ async def _decide_neg_create_generic(els, url, sc_key):
                 return {"action": "done", "result": "PASS",
                         "reason": "[{}] Save accepted — this outcome is acceptable for this scenario".format(
                             sc_key.upper())}
-            if warn_on_ok:
-                if r:
-                    r.update_last_step(True)
-                return {"action": "done", "result": "WARN",
-                        "reason": "[{}] Save accepted with edge-case input — review if intended".format(
-                            sc_key.upper())}
             if r:
                 r.update_last_step(False, error="Project saved when it should have been rejected")
             return {"action": "done", "result": "FAIL",
@@ -1300,12 +1373,6 @@ async def _decide_neg_create_generic(els, url, sc_key):
                     r.update_last_step(True)
                 return {"action": "done", "result": "PASS",
                         "reason": "[{}] Save accepted — this outcome is acceptable for this scenario".format(
-                            sc_key.upper())}
-            if warn_on_ok:
-                if r:
-                    r.update_last_step(True)
-                return {"action": "done", "result": "WARN",
-                        "reason": "[{}] Save accepted with edge-case input — review if intended".format(
                             sc_key.upper())}
             if r:
                 r.update_last_step(False, error="Project saved when it should have been rejected")
@@ -1394,12 +1461,883 @@ NEGATIVE_CREATE_SCENARIOS = [
         "id":         "NEG-C-07",
         "action_key": "neg_c_07",
         "name":       "Zero Budget",
-        "description": "Budget = 0 — WARN if allowed, PASS if blocked",
+        "description": "Budget = 0 — FAIL if allowed, PASS if blocked",
     },
     {
         "id":         "NEG-C-08",
         "action_key": "neg_c_08",
         "name":       "Same Start and End Date",
         "description": "Start = End = today — PASS if allowed or validated, FAIL only on crash",
+    },
+]
+
+
+# ============================================================
+# NEG-U-01 to NEG-U-04: Generic Negative Update State
+#
+# Mirrors _GenericNegCreateState — no explicit search step.
+# Navigate to /projects, click View on the first visible row,
+# click Edit, then perform the negative action.
+# ============================================================
+
+class _GenericNegUpdateState:
+    """Simple state for negative update scenarios — mirrors _GenericNegCreateState."""
+    def __init__(self):
+        self.view_clicked       = False   # View clicked on any project row
+        self.edit_clicked       = False   # Edit clicked inside project detail
+        self.form_open          = False   # Edit form is active
+        self.submitted          = False   # fill_form dispatched (neg_u_01/02/03)
+        self.change_made        = False   # a change was typed (neg_u_04)
+        self.cancel_clicked     = False   # Cancel form button clicked (neg_u_04)
+        self.discard_confirmed  = False   # "Discard changes" dialog confirmed (neg_u_04)
+        self._nav_fired         = False
+        self._view_wait         = 0
+        self._edit_wait         = 0
+        self._wait_cnt          = 0
+        self._close_wait        = 0
+        self.interacted         = set()
+        self.MAX_WAIT           = 4
+
+    def reset(self):
+        self.__init__()
+
+
+_neg_u01_st = _GenericNegUpdateState()
+_neg_u02_st = _GenericNegUpdateState()
+_neg_u03_st = _GenericNegUpdateState()
+_neg_u04_st = _GenericNegUpdateState()
+
+_NEG_U_STATE_MAP = {
+    "neg_u_01": _neg_u01_st,
+    "neg_u_02": _neg_u02_st,
+    "neg_u_03": _neg_u03_st,
+    "neg_u_04": _neg_u04_st,
+}
+
+_NEG_U_PARAMS_MAP = {
+    "neg_u_01": _build_neg_u01_params,
+    "neg_u_02": _build_neg_u02_params,
+    "neg_u_03": _build_neg_u03_params,
+}
+
+# All unexpected saves are treated as FAIL
+_NEG_U_WARN_ON_SUCCESS = set()
+_NEG_U_PASS_ON_SUCCESS = set()
+
+
+async def _decide_neg_update_generic(els, url, sc_key):
+    """
+    Shared decision logic for NEG-U-01 through NEG-U-04.
+
+    Flow (mirrors _decide_neg_create_generic):
+      Navigate to /projects → View first row → Edit →
+        NEG-U-01/02/03: fill_form with bad data → verify validation
+        NEG-U-04      : type a change → Cancel → verify discard
+    """
+    s = _NEG_U_STATE_MAP[sc_key]
+    r = get_reporter()
+
+    # ==========================================================
+    # NEG-U-04: Cancel after making changes
+    # ==========================================================
+    if sc_key == "neg_u_04":
+
+        # Verify cancel outcome
+        if s.cancel_clicked:
+            # Handle optional "Discard changes" confirmation dialog
+            cb = els.get("confirm_btn")
+            if cb and not s.discard_confirmed:
+                s.discard_confirmed = True
+                step = {"action": "click", "selector": cb["selector"]}
+                if r:
+                    r.log_step(len(r.steps) + 1, step, url)
+                print("[NEG-U-04] Confirming discard-changes dialog")
+                return step
+
+            save_happened   = bool(els.get("save_toast") or els.get("success_toast"))
+            form_still_open = bool(els.get("save_btn")) or "/edit" in url.lower()
+
+            if save_happened:
+                if r:
+                    r.update_last_step(False, error="Save occurred after clicking Cancel")
+                return {"action": "done", "result": "FAIL",
+                        "reason": "[NEG-U-04] UNEXPECTED: Save triggered on Cancel — changes not discarded"}
+
+            if not form_still_open:
+                if r:
+                    r.update_last_step(True)
+                return {"action": "done", "result": "PASS",
+                        "reason": "[NEG-U-04] Cancel discarded changes — form closed without saving"}
+
+            s._wait_cnt += 1
+            if s._wait_cnt >= s.MAX_WAIT:
+                if r:
+                    r.update_last_step(False, error="Form still open after Cancel")
+                return {"action": "done", "result": "FAIL",
+                        "reason": "[NEG-U-04] Form still open after Cancel after {} waits".format(s.MAX_WAIT)}
+            return {"action": "wait", "seconds": 1}
+
+        # Click Cancel on the form
+        if s.change_made and not s.cancel_clicked:
+            cb = els.get("cancel_btn")
+            if cb:
+                s.cancel_clicked = True
+                step = {"action": "click", "selector": cb["selector"]}
+                if r:
+                    r.log_step(len(r.steps) + 1, step, url)
+                print("[NEG-U-04] Clicking Cancel")
+                return step
+            # Fallback XPath
+            s.cancel_clicked = True
+            step = {"action": "click",
+                    "selector": "//button[normalize-space()='Cancel']",
+                    "soft_fail": True}
+            if r:
+                r.log_step(len(r.steps) + 1, step, url)
+            print("[NEG-U-04] Clicking Cancel (XPath fallback)")
+            return step
+
+        # Type a change so there is unsaved data
+        if s.form_open and not s.change_made:
+            s.change_made = True
+            step = {"action": "type",
+                    "selector": "input.MuiInputBase-input[type='text']",
+                    "text": "CANCEL_TEST_TEMP"}
+            if r:
+                r.log_step(len(r.steps) + 1, step, url)
+            print("[NEG-U-04] Typing change before Cancel")
+            return step
+
+        # Fall through to navigation
+
+    # ==========================================================
+    # NEG-U-01 / 02 / 03: Verify after fill_form
+    # ==========================================================
+    if s.submitted:
+        dom_raw = els.get("dom_raw") or []
+
+        error_found = (
+            els.get("error_toast")
+            or els.get("duplicate_error")
+            or any(
+                any(x in (el.get("text") or "").lower()
+                    for x in ("required", "invalid", "cannot be empty", "error",
+                               "validation", "must not", "please enter",
+                               "negative", "must be", "less than", "greater than",
+                               "already linked", "already assigned", "already used",
+                               "cannot link", "estimation is"))
+                for el in dom_raw
+                if el.get("tag", "").lower() not in ("input", "button")
+            )
+        )
+        if error_found:
+            if r:
+                r.update_last_step(True)
+            return {"action": "done", "result": "PASS",
+                    "reason": "[{}] Validation error correctly shown".format(sc_key.upper())}
+
+        # Browser HTML5 validation blocked submit
+        if els.get("save_btn") and not els.get("save_toast") and not els.get("success_toast"):
+            if r:
+                r.update_last_step(True)
+            return {"action": "done", "result": "PASS",
+                    "reason": "[{}] Browser validation prevented submit".format(sc_key.upper())}
+
+        # Save toast — project was accepted
+        if els.get("save_toast") or els.get("success_toast"):
+            pass_on_ok = sc_key in _NEG_U_PASS_ON_SUCCESS
+            if pass_on_ok:
+                if r:
+                    r.update_last_step(True)
+                return {"action": "done", "result": "PASS",
+                        "reason": "[{}] Save accepted — acceptable for this scenario".format(sc_key.upper())}
+            if r:
+                r.update_last_step(False, error="Project updated when it should have been rejected")
+            return {"action": "done", "result": "FAIL",
+                    "reason": "[{}] UNEXPECTED: Update accepted — validation not enforced".format(sc_key.upper())}
+
+        # Form closed without toast — give 1 grace tick then decide
+        form_still_open = bool(els.get("save_btn")) or "/edit" in url.lower()
+        if not form_still_open:
+            s._close_wait += 1
+            if s._close_wait <= 1:
+                return {"action": "wait", "seconds": 1}
+            pass_on_ok = sc_key in _NEG_U_PASS_ON_SUCCESS
+            if pass_on_ok:
+                if r:
+                    r.update_last_step(True)
+                return {"action": "done", "result": "PASS",
+                        "reason": "[{}] Save accepted — acceptable for this scenario".format(sc_key.upper())}
+            if r:
+                r.update_last_step(False, error="Project updated silently when it should have been rejected")
+            return {"action": "done", "result": "FAIL",
+                    "reason": "[{}] UNEXPECTED: Update accepted silently — validation not enforced".format(sc_key.upper())}
+
+        s._wait_cnt += 1
+        if s._wait_cnt >= s.MAX_WAIT:
+            if r:
+                r.update_last_step(False, error="Cannot confirm outcome after {} waits".format(s.MAX_WAIT))
+            return {"action": "done", "result": "FAIL",
+                    "reason": "[{}] Cannot confirm outcome after {} waits".format(
+                        sc_key.upper(), s.MAX_WAIT)}
+        return {"action": "wait", "seconds": 1}
+
+    # ── Fill form (neg_u_01 / 02 / 03) ───────────────────────
+    if s.form_open and not s.submitted and sc_key != "neg_u_04":
+        params = _NEG_U_PARAMS_MAP[sc_key](els)
+        s.submitted = True
+        print("[{}] Filling form with negative data".format(sc_key.upper()))
+        if r:
+            r.log_step(len(r.steps) + 1,
+                       {"action": "fill_form", "module": "project",
+                        "params": {"project_name": params.get("project_name", "")}},
+                       url)
+        return {"action": "fill_form", "module": "project", "params": params}
+
+    # ── Click Edit ────────────────────────────────────────────
+    if s.view_clicked and not s.edit_clicked:
+        eb = els["edit_btn"]
+        if eb and eb["selector"] not in s.interacted:
+            s.interacted.add(eb["selector"])
+            s.edit_clicked = True
+            s.form_open    = True
+            print("[{}] Clicking Edit".format(sc_key.upper()))
+            if r:
+                r.log_step(len(r.steps) + 1,
+                           {"action": "click", "selector": eb["selector"]}, url)
+            return {"action": "click", "selector": eb["selector"]}
+        s._edit_wait += 1
+        if s._edit_wait >= s.MAX_WAIT:
+            if r:
+                r.update_last_step(False, error="'Edit' button not found")
+            return {"action": "done", "result": "FAIL",
+                    "reason": "[{}] 'Edit' button not found".format(sc_key.upper())}
+        return {"action": "wait", "seconds": 1}
+
+    # ── Click View on first visible project row ───────────────
+    if not s.view_clicked:
+        if "projects" not in url.lower():
+            if not s._nav_fired:
+                s._nav_fired = True
+                if r:
+                    r.log_step(len(r.steps) + 1,
+                               {"action": "navigate", "url": BASE_URL + "/projects"}, url)
+                return {"action": "navigate", "url": BASE_URL + "/projects"}
+            return {"action": "wait", "seconds": 1}
+        vb = els["view_btn"]
+        if vb and vb["selector"] not in s.interacted:
+            s.interacted.add(vb["selector"])
+            s.view_clicked = True
+            print("[{}] Clicking View on first row".format(sc_key.upper()))
+            if r:
+                r.log_step(len(r.steps) + 1,
+                           {"action": "click", "selector": vb["selector"]}, url)
+            return {"action": "click", "selector": vb["selector"]}
+        s._view_wait += 1
+        if s._view_wait >= s.MAX_WAIT:
+            if r:
+                r.update_last_step(False, error="No project rows visible on /projects page")
+            return {"action": "done", "result": "FAIL",
+                    "reason": "[{}] No projects visible on list page".format(sc_key.upper())}
+        return {"action": "wait", "seconds": 1}
+
+    return {"action": "wait", "seconds": 1}
+
+
+# ============================================================
+# NEGATIVE UPDATE SUITE — scenario registry
+# ============================================================
+
+NEGATIVE_UPDATE_SCENARIOS = [
+    {
+        "id":          "NEG-U-01",
+        "action_key":  "neg_u_01",
+        "name":        "Clear Project Name and Save",
+        "description": "Erase project name, click Save — expect required-field validation error",
+    },
+    {
+        "id":          "NEG-U-02",
+        "action_key":  "neg_u_02",
+        "name":        "Negative Planned Budget",
+        "description": "Enter -5000 as budget — expect validation/rejection",
+    },
+    {
+        "id":          "NEG-U-03",
+        "action_key":  "neg_u_03",
+        "name":        "Link Already-Linked Estimation",
+        "description": "Link first-available estimation (may already belong to another project) — expect rejection",
+    },
+    {
+        "id":          "NEG-U-04",
+        "action_key":  "neg_u_04",
+        "name":        "Cancel After Making Changes",
+        "description": "Type a change then click Cancel — expect changes discarded, form closed without saving",
+    },
+]
+
+
+# ============================================================
+# NEG-D-01: Delete project with logged hours
+# ============================================================
+
+class _NegD01State:
+    def __init__(self):
+        self.target_name    = ""
+        self.search_typed   = False
+        self.delete_clicked = False
+        self.confirmed      = False
+        self.verified       = False
+        self._nav_fired     = False
+        self._search_wait   = 0
+        self._delete_wait   = 0
+        self._verify_wait   = 0
+        self.interacted     = set()
+        self.MAX_WAIT       = 4
+
+    def reset(self):
+        self.__init__()
+
+
+_neg_d01_st = _NegD01State()
+
+
+async def _decide_neg_d01(els, url, goal):
+    s = _neg_d01_st
+    r = get_reporter()
+
+    if not s.target_name:
+        m = _DELETE_RE.search(goal)
+        if m:
+            s.target_name = m.group(1).strip()
+            print("[NEG-D-01] Target: '{}'".format(s.target_name))
+
+    if s.verified:
+        if r:
+            r.update_last_step(True)
+        return {"action": "done", "result": "PASS",
+                "reason": "[NEG-D-01] Test passed"}
+
+    # Verify after delete clicked (and confirmation auto-accepted if dialog appeared)
+    if s.confirmed:
+        dom_raw = els.get("dom_raw") or []
+
+        # PASS — system blocked the delete with an error
+        blocked = bool(els.get("error_toast")) or any(
+            any(x in (el.get("text") or "").lower()
+                for x in ("cannot delete", "logged hours", "has timesheet",
+                           "timesheet entries", "cannot be deleted", "in use",
+                           "has dependencies", "has entries", "hours logged",
+                           "associated timesheets"))
+            for el in dom_raw
+            if el.get("tag", "").lower() not in ("input", "button")
+        )
+        if blocked:
+            s.verified = True
+            if r:
+                r.update_last_step(True)
+            return {"action": "done", "result": "PASS",
+                    "reason": "[NEG-D-01] Delete correctly blocked — project has logged hours"}
+
+        # FAIL — delete succeeded when project with logged hours should be protected
+        if els.get("success_toast"):
+            s.verified = True
+            if r:
+                r.update_last_step(False, error="Delete succeeded — project with logged hours was not protected")
+            return {"action": "done", "result": "FAIL",
+                    "reason": "[NEG-D-01] UNEXPECTED: Delete succeeded — project with logged hours was not protected"}
+
+        s._verify_wait += 1
+        if s._verify_wait >= s.MAX_WAIT:
+            s.verified = True
+            if r:
+                r.update_last_step(False, error="Delete outcome unclear after {} waits".format(s.MAX_WAIT))
+            return {"action": "done", "result": "FAIL",
+                    "reason": "[NEG-D-01] Outcome unclear after {} waits — delete may have been allowed".format(
+                        s.MAX_WAIT)}
+        return {"action": "wait", "seconds": 1}
+
+    # Confirm the delete dialog (auto-accept to observe whether the app blocks it)
+    if s.delete_clicked and not s.confirmed:
+        s.confirmed = True
+        return {"action": "wait", "seconds": 1}
+
+    # Click delete button
+    if s.search_typed:
+        db = els["delete_btn"]
+        if db and db["selector"] not in s.interacted:
+            s.interacted.add(db["selector"])
+            s.delete_clicked = True
+            print("[NEG-D-01] Clicking Delete")
+            if r:
+                r.log_step(len(r.steps) + 1,
+                           {"action": "click",
+                            "selector": "button.MuiButton-outlinedError"}, url)
+            return {"action": "click", "selector": "button.MuiButton-outlinedError",
+                    "extra_wait_ms": 2000}
+        s._delete_wait += 1
+        if s._delete_wait >= s.MAX_WAIT:
+            if r:
+                r.update_last_step(False, error="Delete button not found")
+            return {"action": "done", "result": "FAIL",
+                    "reason": "[NEG-D-01] Delete button not found in search results"}
+        return {"action": "wait", "seconds": 1}
+
+    # Search
+    if not s.search_typed:
+        if "projects" not in url.lower():
+            if not s._nav_fired:
+                s._nav_fired = True
+                if r:
+                    r.log_step(len(r.steps) + 1,
+                               {"action": "navigate", "url": BASE_URL + "/projects"}, url)
+                return {"action": "navigate", "url": BASE_URL + "/projects"}
+            return {"action": "wait", "seconds": 1}
+        si = els["search_input"]
+        if si:
+            s.search_typed = True
+            print("[NEG-D-01] Searching '{}'".format(s.target_name))
+            if r:
+                r.log_step(len(r.steps) + 1,
+                           {"action": "type", "selector": si["selector"],
+                            "text": s.target_name}, url)
+            return {"action": "type", "selector": si["selector"], "text": s.target_name}
+        s._search_wait += 1
+        if s._search_wait >= s.MAX_WAIT:
+            if r:
+                r.update_last_step(False, error="Search input not found")
+            return {"action": "done", "result": "FAIL",
+                    "reason": "[NEG-D-01] Search input not found"}
+        return {"action": "wait", "seconds": 1}
+
+    return {"action": "wait", "seconds": 1}
+
+
+# ============================================================
+# NEG-D-02: Click Delete then Cancel on confirmation dialog
+# ============================================================
+
+class _NegD02State:
+    def __init__(self):
+        self.target_name    = ""
+        self.search_typed   = False
+        self.delete_clicked = False
+        self.cancel_clicked = False   # clicked No/Cancel on confirmation
+        self.re_searched    = False
+        self.verified       = False
+        self._nav_fired     = False
+        self._nav2_fired    = False
+        self._search_wait   = 0
+        self._delete_wait   = 0
+        self._re_search_wait= 0
+        self._verify_wait   = 0
+        self.interacted     = set()
+        self.MAX_WAIT       = 4
+
+    def reset(self):
+        self.__init__()
+
+
+_neg_d02_st = _NegD02State()
+
+
+async def _decide_neg_d02(els, url, goal):
+    s = _neg_d02_st
+    r = get_reporter()
+
+    if not s.target_name:
+        m = _DELETE_RE.search(goal)
+        if m:
+            s.target_name = m.group(1).strip()
+            print("[NEG-D-02] Target: '{}'".format(s.target_name))
+
+    if s.verified:
+        if r:
+            r.update_last_step(True)
+        return {"action": "done", "result": "PASS",
+                "reason": "[NEG-D-02] Project preserved after cancel — correct"}
+
+    # ── Phase 2: Verify project still exists after cancel ─────
+    if s.cancel_clicked:
+        # Navigate back to /projects if needed
+        if "projects" not in url.lower():
+            if not s._nav2_fired:
+                s._nav2_fired = True
+                if r:
+                    r.log_step(len(r.steps) + 1,
+                               {"action": "navigate", "url": BASE_URL + "/projects"}, url)
+                return {"action": "navigate", "url": BASE_URL + "/projects"}
+            return {"action": "wait", "seconds": 1}
+
+        # Re-search for the project
+        if not s.re_searched:
+            si = els["search_input"]
+            if si:
+                s.re_searched = True
+                if r:
+                    r.log_step(len(r.steps) + 1,
+                               {"action": "type", "selector": si["selector"],
+                                "text": s.target_name}, url)
+                return {"action": "type", "selector": si["selector"],
+                        "text": s.target_name}
+            s._re_search_wait += 1
+            if s._re_search_wait >= s.MAX_WAIT:
+                if r:
+                    r.update_last_step(False, error="Search input not found during re-verify")
+                return {"action": "done", "result": "FAIL",
+                        "reason": "[NEG-D-02] Cannot re-verify — search input not found"}
+            return {"action": "wait", "seconds": 1}
+
+        # Check that project appears in results
+        name_lower = s.target_name.lower()
+        found = any(
+            name_lower in (el.get("text") or "").lower()
+            for el in (els.get("dom_raw") or [])
+        )
+        if found:
+            s.verified = True
+            if r:
+                r.update_last_step(True)
+            return {"action": "done", "result": "PASS",
+                    "reason": "[NEG-D-02] Project '{}' still exists after Cancel — correct".format(
+                        s.target_name)}
+
+        s._verify_wait += 1
+        if s._verify_wait >= s.MAX_WAIT:
+            if r:
+                r.update_last_step(False,
+                    error="Project not found after cancel — may have been deleted")
+            return {"action": "done", "result": "FAIL",
+                    "reason": "[NEG-D-02] Project '{}' not found after Cancel — was it deleted?".format(
+                        s.target_name)}
+        return {"action": "wait", "seconds": 1}
+
+    # ── Click No / Cancel on the confirmation dialog ──────────
+    if s.delete_clicked and not s.cancel_clicked:
+        deny = els.get("deny_btn")
+        if deny:
+            s.cancel_clicked = True
+            step = {"action": "click", "selector": deny["selector"]}
+            if r:
+                r.log_step(len(r.steps) + 1, step, url)
+            print("[NEG-D-02] Clicking No/Cancel on confirmation dialog")
+            return step
+        # Fallback XPath
+        s.cancel_clicked = True
+        step = {"action": "click",
+                "selector": ("//button[normalize-space()='No']"
+                             " | //button[normalize-space()='Cancel']"
+                             " | //button[normalize-space()='No, keep it']"),
+                "soft_fail": True}
+        if r:
+            r.log_step(len(r.steps) + 1, step, url)
+        print("[NEG-D-02] Clicking No/Cancel on confirmation dialog (XPath fallback)")
+        return step
+
+    # ── Click Delete button ───────────────────────────────────
+    if s.search_typed and not s.delete_clicked:
+        db = els["delete_btn"]
+        if db and db["selector"] not in s.interacted:
+            s.interacted.add(db["selector"])
+            s.delete_clicked = True
+            print("[NEG-D-02] Clicking Delete")
+            if r:
+                r.log_step(len(r.steps) + 1,
+                           {"action": "click",
+                            "selector": "button.MuiButton-outlinedError"}, url)
+            return {"action": "click", "selector": "button.MuiButton-outlinedError",
+                    "extra_wait_ms": 2000}
+        s._delete_wait += 1
+        if s._delete_wait >= s.MAX_WAIT:
+            if r:
+                r.update_last_step(False, error="Delete button not found")
+            return {"action": "done", "result": "FAIL",
+                    "reason": "[NEG-D-02] Delete button not found in search results"}
+        return {"action": "wait", "seconds": 1}
+
+    # ── Search ────────────────────────────────────────────────
+    if not s.search_typed:
+        if "projects" not in url.lower():
+            if not s._nav_fired:
+                s._nav_fired = True
+                if r:
+                    r.log_step(len(r.steps) + 1,
+                               {"action": "navigate", "url": BASE_URL + "/projects"}, url)
+                return {"action": "navigate", "url": BASE_URL + "/projects"}
+            return {"action": "wait", "seconds": 1}
+        si = els["search_input"]
+        if si:
+            s.search_typed = True
+            print("[NEG-D-02] Searching '{}'".format(s.target_name))
+            if r:
+                r.log_step(len(r.steps) + 1,
+                           {"action": "type", "selector": si["selector"],
+                            "text": s.target_name}, url)
+            return {"action": "type", "selector": si["selector"], "text": s.target_name}
+        s._search_wait += 1
+        if s._search_wait >= s.MAX_WAIT:
+            if r:
+                r.update_last_step(False, error="Search input not found")
+            return {"action": "done", "result": "FAIL",
+                    "reason": "[NEG-D-02] Search input not found"}
+        return {"action": "wait", "seconds": 1}
+
+    return {"action": "wait", "seconds": 1}
+
+
+# ============================================================
+# NEG-D-03: Delete project then access its old URL directly
+# ============================================================
+
+class _NegD03State:
+    def __init__(self):
+        self.target_name     = ""
+        self.project_url     = ""    # captured detail-page URL
+
+        # Phase 1 — capture URL
+        self.search_typed    = False
+        self.view_clicked    = False
+        self.url_captured    = False
+
+        # Phase 2 — navigate back and delete
+        self.back_nav        = False
+        self.search_typed_2  = False
+        self.delete_clicked  = False
+        self.confirmed       = False
+
+        # Phase 3 — visit old URL and verify
+        self.old_url_visited = False
+        self.verified        = False
+
+        self._nav_fired      = False
+        self._search_wait    = 0
+        self._view_wait      = 0
+        self._back_wait      = 0
+        self._delete_wait    = 0
+        self._verify_wait    = 0
+        self.interacted      = set()
+        self.MAX_WAIT        = 4
+
+    def reset(self):
+        self.__init__()
+
+
+_neg_d03_st = _NegD03State()
+
+
+async def _decide_neg_d03(els, url, goal):
+    s = _neg_d03_st
+    r = get_reporter()
+
+    if not s.target_name:
+        m = _DELETE_RE.search(goal)
+        if m:
+            s.target_name = m.group(1).strip()
+            print("[NEG-D-03] Target: '{}'".format(s.target_name))
+
+    if s.verified:
+        if r:
+            r.update_last_step(True)
+        return {"action": "done", "result": "PASS",
+                "reason": "[NEG-D-03] Old URL correctly inaccessible after delete"}
+
+    # ── Phase 3: Verify old URL returns 404 / redirect ────────
+    if s.old_url_visited:
+        dom_raw   = els.get("dom_raw") or []
+        page_text = " ".join((el.get("text") or "").lower() for el in dom_raw)
+
+        not_found = any(x in page_text for x in
+                        ("404", "not found", "page not found", "doesn't exist",
+                         "no longer exists", "been deleted", "unavailable"))
+        redirected_away = (
+            "projects" in url.lower()
+            and s.project_url
+            and url.rstrip("/") != s.project_url.rstrip("/")
+        )
+
+        if not_found or redirected_away:
+            s.verified = True
+            if r:
+                r.update_last_step(True)
+            return {"action": "done", "result": "PASS",
+                    "reason": "[NEG-D-03] Old URL '{}' correctly inaccessible — {}".format(
+                        s.project_url,
+                        "404 page shown" if not_found else "redirected away")}
+
+        # FAIL — deleted project still accessible
+        if s.target_name.lower() in page_text:
+            s.verified = True
+            if r:
+                r.update_last_step(False,
+                    error="Deleted project still accessible at old URL")
+            return {"action": "done", "result": "FAIL",
+                    "reason": "[NEG-D-03] UNEXPECTED: Deleted project still accessible at '{}'".format(
+                        s.project_url)}
+
+        s._verify_wait += 1
+        if s._verify_wait >= s.MAX_WAIT:
+            s.verified = True
+            if r:
+                r.update_last_step(False, error="Old URL outcome unclear after {} waits".format(s.MAX_WAIT))
+            return {"action": "done", "result": "FAIL",
+                    "reason": "[NEG-D-03] Old URL visited but outcome unclear after {} waits".format(
+                        s.MAX_WAIT)}
+        return {"action": "wait", "seconds": 1}
+
+    # ── Phase 3: Navigate to old URL ──────────────────────────
+    if s.confirmed and not s.old_url_visited:
+        if not s.project_url:
+            if r:
+                r.update_last_step(False, error="Project URL was not captured before delete")
+            return {"action": "done", "result": "FAIL",
+                    "reason": "[NEG-D-03] Project URL not captured — cannot verify"}
+        s.old_url_visited = True
+        step = {"action": "navigate", "url": s.project_url}
+        if r:
+            r.log_step(len(r.steps) + 1, step, url)
+        print("[NEG-D-03] Navigating to old URL: {}".format(s.project_url))
+        return step
+
+    # ── Phase 2: Confirm delete dialog ────────────────────────
+    if s.delete_clicked and not s.confirmed:
+        s.confirmed = True
+        return {"action": "wait", "seconds": 1}
+
+    # ── Phase 2: Click Delete ─────────────────────────────────
+    if s.search_typed_2 and not s.delete_clicked:
+        db = els["delete_btn"]
+        if db and db["selector"] not in s.interacted:
+            s.interacted.add(db["selector"])
+            s.delete_clicked = True
+            print("[NEG-D-03] Phase 2: Clicking Delete")
+            if r:
+                r.log_step(len(r.steps) + 1,
+                           {"action": "click",
+                            "selector": "button.MuiButton-outlinedError"}, url)
+            return {"action": "click", "selector": "button.MuiButton-outlinedError",
+                    "extra_wait_ms": 2000}
+        s._delete_wait += 1
+        if s._delete_wait >= s.MAX_WAIT:
+            if r:
+                r.update_last_step(False, error="Delete button not found in phase 2")
+            return {"action": "done", "result": "FAIL",
+                    "reason": "[NEG-D-03] Delete button not found"}
+        return {"action": "wait", "seconds": 1}
+
+    # ── Phase 2: Navigate back and search ─────────────────────
+    if s.url_captured and not s.search_typed_2:
+        if "projects" not in url.lower() or (
+                s.project_url and url.rstrip("/") == s.project_url.rstrip("/")):
+            if not s.back_nav:
+                s.back_nav = True
+                if r:
+                    r.log_step(len(r.steps) + 1,
+                               {"action": "navigate", "url": BASE_URL + "/projects"}, url)
+                return {"action": "navigate", "url": BASE_URL + "/projects"}
+            return {"action": "wait", "seconds": 1}
+        si = els["search_input"]
+        if si:
+            s.search_typed_2 = True
+            print("[NEG-D-03] Phase 2: Searching '{}'".format(s.target_name))
+            if r:
+                r.log_step(len(r.steps) + 1,
+                           {"action": "type", "selector": si["selector"],
+                            "text": s.target_name}, url)
+            return {"action": "type", "selector": si["selector"], "text": s.target_name}
+        s._back_wait += 1
+        if s._back_wait >= s.MAX_WAIT:
+            if r:
+                r.update_last_step(False, error="Search input not found for phase 2")
+            return {"action": "done", "result": "FAIL",
+                    "reason": "[NEG-D-03] Search input not found in phase 2"}
+        return {"action": "wait", "seconds": 1}
+
+    # ── Phase 1: Capture URL after View ───────────────────────
+    if s.view_clicked and not s.url_captured:
+        if "/projects/" in url.lower() and url.rstrip("/") != (BASE_URL + "/projects").rstrip("/"):
+            s.project_url  = url
+            s.url_captured = True
+            print("[NEG-D-03] Captured project URL: {}".format(url))
+            return {"action": "wait", "seconds": 1}
+        s._view_wait += 1
+        if s._view_wait >= s.MAX_WAIT:
+            # URL not captured — mark as captured anyway, proceed without old-URL test
+            s.url_captured = True
+            print("[NEG-D-03] Could not capture project URL")
+        return {"action": "wait", "seconds": 1}
+
+    # ── Phase 1: Click View ───────────────────────────────────
+    if s.search_typed and not s.view_clicked:
+        vb = els["view_btn"]
+        if vb and vb["selector"] not in s.interacted:
+            s.interacted.add(vb["selector"])
+            s.view_clicked = True
+            print("[NEG-D-03] Phase 1: Clicking View")
+            if r:
+                r.log_step(len(r.steps) + 1,
+                           {"action": "click", "selector": vb["selector"]}, url)
+            return {"action": "click", "selector": vb["selector"]}
+        s._view_wait += 1
+        if s._view_wait >= s.MAX_WAIT:
+            if r:
+                r.update_last_step(False, error="'View' button not found")
+            return {"action": "done", "result": "FAIL",
+                    "reason": "[NEG-D-03] View button not found in phase 1"}
+        return {"action": "wait", "seconds": 1}
+
+    # ── Phase 1: Search ───────────────────────────────────────
+    if not s.search_typed:
+        if "projects" not in url.lower():
+            if not s._nav_fired:
+                s._nav_fired = True
+                if r:
+                    r.log_step(len(r.steps) + 1,
+                               {"action": "navigate", "url": BASE_URL + "/projects"}, url)
+                return {"action": "navigate", "url": BASE_URL + "/projects"}
+            return {"action": "wait", "seconds": 1}
+        si = els["search_input"]
+        if si:
+            s.search_typed = True
+            print("[NEG-D-03] Phase 1: Searching '{}'".format(s.target_name))
+            if r:
+                r.log_step(len(r.steps) + 1,
+                           {"action": "type", "selector": si["selector"],
+                            "text": s.target_name}, url)
+            return {"action": "type", "selector": si["selector"], "text": s.target_name}
+        s._search_wait += 1
+        if s._search_wait >= s.MAX_WAIT:
+            if r:
+                r.update_last_step(False, error="Search input not found")
+            return {"action": "done", "result": "FAIL",
+                    "reason": "[NEG-D-03] Search input not found"}
+        return {"action": "wait", "seconds": 1}
+
+    return {"action": "wait", "seconds": 1}
+
+
+# ============================================================
+# NEGATIVE DELETE SUITE — scenario registry
+# ============================================================
+
+NEGATIVE_DELETE_SCENARIOS = [
+    {
+        "id":          "NEG-D-01",
+        "action_key":  "neg_d_01",
+        "name":        "Delete Project With Logged Hours",
+        "description": "Delete a project that has timesheet entries — PASS if blocked, FAIL if allowed",
+        "needs_target": True,
+    },
+    {
+        "id":          "NEG-D-02",
+        "action_key":  "neg_d_02",
+        "name":        "Delete Then Cancel Confirmation",
+        "description": "Click Delete then Cancel on the confirmation dialog — expect project preserved",
+        "needs_target": True,
+    },
+    {
+        "id":          "NEG-D-03",
+        "action_key":  "neg_d_03",
+        "name":        "Access Old URL After Delete",
+        "description": "Delete project then navigate to its old detail URL — expect 404 or redirect",
+        "needs_target": True,
     },
 ]

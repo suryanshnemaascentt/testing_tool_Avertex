@@ -306,11 +306,17 @@ async def run_negative_suite(url, module_key, action_key, selected_scenarios=Non
     Returns:
         list of result dicts with keys: id, name, status, reason
     """
-    from modules.project import NEGATIVE_CREATE_SCENARIOS
+    from modules.project import NEGATIVE_CREATE_SCENARIOS, NEGATIVE_UPDATE_SCENARIOS, NEGATIVE_DELETE_SCENARIOS
     from report.test_report import generate_suite_report
 
     suite_name = "{} {}".format(module_key.upper(), action_key.upper())
-    scenarios  = selected_scenarios if selected_scenarios is not None else NEGATIVE_CREATE_SCENARIOS
+    if action_key == "update":
+        default_scenarios = NEGATIVE_UPDATE_SCENARIOS
+    elif action_key == "delete":
+        default_scenarios = NEGATIVE_DELETE_SCENARIOS
+    else:
+        default_scenarios = NEGATIVE_CREATE_SCENARIOS
+    scenarios  = selected_scenarios if selected_scenarios is not None else default_scenarios
     results    = []
 
     print("\n" + "=" * 50)
@@ -322,7 +328,7 @@ async def run_negative_suite(url, module_key, action_key, selected_scenarios=Non
         print("\n[SUITE] Running {} / {}  —  {} ({})".format(
             i + 1, len(scenarios), sc["id"], sc["name"]))
 
-        goal      = "{} — {}".format(sc["id"], sc["name"])
+        goal      = "delete project {}".format(sc["target"]) if sc.get("target") else "{} — {}".format(sc["id"], sc["name"])
         # Each run() opens a brand-new browser via async_playwright().
         # keep_session=True would skip reset_nav(), leaving nav_done()=True
         # as stale state from the previous run — causing all scenarios after
@@ -538,10 +544,14 @@ _NEG_ACTION_KEYS = {
     "create_empty_name", "create_duplicate",
     "neg_c_03", "neg_c_04", "neg_c_05",
     "neg_c_06", "neg_c_07", "neg_c_08",
+    # Update negative scenarios — run via _select_test_type when action == update
+    "neg_u_01", "neg_u_02", "neg_u_03", "neg_u_04",
+    # Delete negative scenarios — run via _select_test_type when action == delete
+    "neg_d_01", "neg_d_02", "neg_d_03",
 }
 
 
-def _select_negative_scenarios():
+def _select_negative_scenarios(action_key="create"):
     """
     Display the full list of negative scenarios and let the user choose which to run.
 
@@ -553,13 +563,23 @@ def _select_negative_scenarios():
       - '1,3-5,7'           → combinations of the above
 
     Returns:
-        list of scenario dicts (subset of NEGATIVE_CREATE_SCENARIOS).
+        list of scenario dicts (subset of the relevant scenario list).
     """
-    from modules.project import NEGATIVE_CREATE_SCENARIOS
-    scenarios = NEGATIVE_CREATE_SCENARIOS
+    if action_key == "update":
+        from modules.project import NEGATIVE_UPDATE_SCENARIOS
+        scenarios = NEGATIVE_UPDATE_SCENARIOS
+        header = "NEGATIVE UPDATE TEST SCENARIOS"
+    elif action_key == "delete":
+        from modules.project import NEGATIVE_DELETE_SCENARIOS
+        scenarios = NEGATIVE_DELETE_SCENARIOS
+        header = "NEGATIVE DELETE TEST SCENARIOS"
+    else:
+        from modules.project import NEGATIVE_CREATE_SCENARIOS
+        scenarios = NEGATIVE_CREATE_SCENARIOS
+        header = "NEGATIVE TEST SCENARIOS"
 
     print("\n" + "-" * 55)
-    print("  NEGATIVE TEST SCENARIOS")
+    print("  {}".format(header))
     print("-" * 55)
     for i, sc in enumerate(scenarios, start=1):
         print("  {:>2}  ->  [{}]  {}".format(i, sc["id"], sc["name"]))
@@ -569,11 +589,13 @@ def _select_negative_scenarios():
     print("  Press Enter or type 'all' to run all {} scenarios".format(len(scenarios)))
     print("-" * 55)
 
+    selected = []
     while True:
         raw = input("  Selection [all]: ").strip().lower()
         if not raw or raw == "all":
             print("  Will run all {} scenarios.".format(len(scenarios)))
-            return list(scenarios)
+            selected = list(scenarios)
+            break
 
         selected_indices = set()
         valid = True
@@ -619,16 +641,26 @@ def _select_negative_scenarios():
         selected = [scenarios[i - 1] for i in sorted(selected_indices)]
         print("\n  Will run {} scenario(s): {}".format(
             len(selected), ", ".join(s["id"] for s in selected)))
-        return selected
+
+    # Delete negative scenarios all require a target project name
+    if action_key == "delete":
+        print("-" * 55)
+        target = ""
+        while not target:
+            target = input("  Enter target project name: ").strip()
+            if not target:
+                print("  [WARN] Target project name is required for delete scenarios")
+        selected = [dict(sc, target=target) for sc in selected]
+
+    return selected
 
 
 def _select_test_type(action_key="create"):
     """
     Prompt for test type.
-    Negative / Both are only available when action_key == 'create'
-    (negative scenarios are implemented for Create only so far).
+    Negative / Both are offered when action_key is 'create' or 'update'.
     """
-    neg_available = (action_key == "create")
+    neg_available = action_key in ("create", "update", "delete")
 
     print("\n" + "-" * 45)
     print("  TEST TYPE")
@@ -638,7 +670,7 @@ def _select_test_type(action_key="create"):
         print("  2  ->  Negative  (all negative scenarios)")
         print("  3  ->  Both      (positive then negative)")
     else:
-        print("  [NOTE] Negative testing is only available for the Create action")
+        print("  [NOTE] Negative testing is available for Create and Update actions only")
     print("-" * 45)
     while True:
         tt = input("  Select test type [1]: ").strip()
@@ -843,7 +875,7 @@ def get_inputs():
     # When running negative scenarios, let the user pick which ones to execute.
     neg_selection = None
     if test_type in ("negative", "both"):
-        neg_selection = _select_negative_scenarios()
+        neg_selection = _select_negative_scenarios(action_key)
 
     print("\n" + "=" * 45)
     print("  URL       : {}".format(BASE_URL))
