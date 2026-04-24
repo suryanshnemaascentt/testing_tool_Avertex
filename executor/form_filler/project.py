@@ -40,110 +40,179 @@ async def fill_project_form(page, p, overrides=None):
         p         — params dict built by _build_create_params() or _build_update_params()
         overrides — optional dict merged into p before filling (used by negative scenarios)
     """
-    if overrides:
-        p = dict(p)
-        p.update(overrides)
-
-    name        = p.get("project_name", "AutoProject_{}".format(datetime.now().strftime("%H%M%S")))
-    description = p.get("description", "Auto-generated.")
-    start_date  = p.get("start_date") or datetime.now().strftime("%m/%d/%Y")
-    end_date    = p.get("end_date")   or (datetime.now() + timedelta(days=30)).strftime("%m/%d/%Y")
-    budget      = p.get("budget", "10000")
-
-    print("\n{}".format("=" * 50))
-    print("[FORM] Project: '{}'  {} -> {}  budget={}".format(
-        name, start_date, end_date, budget))
-    print("=" * 50)
-
     r = get_reporter()
+    try:
+        if overrides:
+            p = dict(p)
+            p.update(overrides)
 
-    # 1. Project name and description
-    await _set_text_input(page, name)
-    if r: r.log_sub_step("Project Name", name, "PASS")
+        name        = p.get("project_name", "AutoProject_{}".format(datetime.now().strftime("%H%M%S")))
+        description = p.get("description", "Auto-generated.")
+        start_date  = p.get("start_date") or datetime.now().strftime("%m/%d/%Y")
+        end_date    = p.get("end_date")   or (datetime.now() + timedelta(days=30)).strftime("%m/%d/%Y")
+        budget      = p.get("budget", "10000")
 
-    await _set_textarea(page, description)
-    if r: r.log_sub_step("Description", description, "PASS")
+        print("\n{}".format("=" * 50))
+        print("[FORM] Project: '{}'  {} -> {}  budget={}".format(
+            name, start_date, end_date, budget))
+        print("=" * 50)
 
-    # 2. MUI dropdowns — must be sequential because Billing Type affects Client visibility
+        # 1. Project name and description
+        ok = await _set_text_input(page, name)
+        if r:
+            r.log_sub_step("Project Name", name, "PASS" if ok else "FAIL",
+                           error="" if ok else "Could not fill Project Name")
 
-    selected = await mui_select(page, "Project Type", p.get("project_type"))
-    if r: r.log_sub_step("Project Type", selected if selected else "Auto-selected", "PASS")
+        ok = await _set_textarea(page, description)
+        if r:
+            r.log_sub_step("Description", description, "PASS" if ok else "FAIL",
+                           error="" if ok else "Could not fill Description")
 
-    selected = await mui_select(page, "Delivery Model", p.get("delivery_model"))
-    if r: r.log_sub_step("Delivery Model", selected if selected else "Auto-selected", "PASS")
+        # 2. MUI dropdowns — must be sequential because Billing Type affects Client visibility
+        selected = await mui_select(page, "Project Type", p.get("project_type"))
+        if r:
+            r.log_sub_step("Project Type",
+                           selected if selected else (p.get("project_type") or "Auto-selected"),
+                           "PASS" if selected else "FAIL",
+                           error="" if selected else "Could not select Project Type")
 
-    selected = await mui_select(page, "Methodology", p.get("methodology"))
-    if r: r.log_sub_step("Methodology", selected if selected else "Auto-selected", "PASS")
+        selected = await mui_select(page, "Delivery Model", p.get("delivery_model"))
+        if r:
+            r.log_sub_step("Delivery Model",
+                           selected if selected else (p.get("delivery_model") or "Auto-selected"),
+                           "PASS" if selected else "FAIL",
+                           error="" if selected else "Could not select Delivery Model")
 
-    selected = await mui_select(page, "Risk Rating", p.get("risk_rating"))
-    if r: r.log_sub_step("Risk Rating", selected if selected else "Auto-selected", "PASS")
+        selected = await mui_select(page, "Methodology", p.get("methodology"))
+        if r:
+            r.log_sub_step("Methodology",
+                           selected if selected else (p.get("methodology") or "Auto-selected"),
+                           "PASS" if selected else "FAIL",
+                           error="" if selected else "Could not select Methodology")
 
-    chosen_billing = await mui_select(page, "Billing Type", p.get("billing_type"))
-    if r: r.log_sub_step("Billing Type", chosen_billing if chosen_billing else "Auto-selected", "PASS")
+        selected = await mui_select(page, "Risk Rating", p.get("risk_rating"))
+        if r:
+            r.log_sub_step("Risk Rating",
+                           selected if selected else (p.get("risk_rating") or "Auto-selected"),
+                           "PASS" if selected else "FAIL",
+                           error="" if selected else "Could not select Risk Rating")
 
-    await _wait(page, T_SHORT)
+        chosen_billing = await mui_select(page, "Billing Type", p.get("billing_type"))
+        if r:
+            r.log_sub_step("Billing Type",
+                           chosen_billing if chosen_billing else (p.get("billing_type") or "Auto-selected"),
+                           "PASS" if chosen_billing else "FAIL",
+                           error="" if chosen_billing else "Could not select Billing Type")
 
-    selected = await mui_select(page, "Currency", p.get("currency"))
-    if r: r.log_sub_step("Currency", selected if selected else "Auto-selected", "PASS")
+        await _wait(page, T_SHORT)
 
-    # 3. Client autocomplete — only shown for Billable projects
-    is_billable = (chosen_billing or "").lower().strip() == "billable"
-    skip_client = p.get("skip_client", False)
-    if (is_billable or chosen_billing is None) and not skip_client:
-        await mui_autocomplete(page, "Client",
-                               p.get("client_search", "a"),
-                               p.get("client_selector"))
-        if r: r.log_sub_step("Client", p.get("client_search", "a"), "PASS")
-    else:
-        reason = "(override: skip_client)" if skip_client else "(billing='{}')".format(chosen_billing)
-        print("   [INFO] Client field skipped {}".format(reason))
-        if r: r.log_sub_step("Client", "(skipped — {})".format(reason), "PASS")
+        selected = await mui_select(page, "Currency", p.get("currency"))
+        if r:
+            r.log_sub_step("Currency",
+                           selected if selected else (p.get("currency") or "Auto-selected"),
+                           "PASS" if selected else "FAIL",
+                           error="" if selected else "Could not select Currency")
 
-    # 4. Link to Estimation autocomplete
-    await mui_autocomplete(page, "Link to Estimation",
-                           p.get("estimation_search", "a"),
-                           p.get("estimation_selector"))
-    if r: r.log_sub_step("Link to Estimation", p.get("estimation_search", "a"), "PASS")
+        # 3. Client autocomplete — only shown for Billable projects
+        is_billable = (chosen_billing or "").lower().strip() == "billable"
+        skip_client = p.get("skip_client", False)
+        if (is_billable or chosen_billing is None) and not skip_client:
+            try:
+                await mui_autocomplete(page, "Client",
+                                       p.get("client_search", "a"),
+                                       p.get("client_selector"))
+                if r:
+                    r.log_sub_step("Client", p.get("client_search", "a"), "PASS")
+            except Exception as e:
+                print("   [ERR] Client autocomplete: {}".format(e))
+                if r:
+                    r.log_sub_step("Client", p.get("client_search", "a"), "FAIL",
+                                   error="Could not select Client: {}".format(e))
+        else:
+            reason = "(override: skip_client)" if skip_client else "(billing='{}')".format(chosen_billing)
+            print("   [INFO] Client field skipped {}".format(reason))
+            if r:
+                r.log_sub_step("Client", "(skipped — {})".format(reason), "PASS")
 
-    # 5. Dates — must be sequential (sharing keyboard would corrupt both dates)
-    await _set_date(page, 0, start_date, "Start Date")
-    if r: r.log_sub_step("Start Date", start_date, "PASS")
+        # 4. Link to Estimation autocomplete
+        try:
+            await mui_autocomplete(page, "Link to Estimation",
+                                   p.get("estimation_search", "a"),
+                                   p.get("estimation_selector"))
+            if r:
+                r.log_sub_step("Link to Estimation", p.get("estimation_search", "a"), "PASS")
+        except Exception as e:
+            print("   [ERR] Link to Estimation autocomplete: {}".format(e))
+            if r:
+                r.log_sub_step("Link to Estimation", p.get("estimation_search", "a"), "FAIL",
+                               error="Could not select Link to Estimation: {}".format(e))
 
-    await _set_date(page, 1, end_date, "End Date")
-    if r: r.log_sub_step("End Date", end_date, "PASS")
+        # 5. Dates — must be sequential (sharing keyboard would corrupt both dates)
+        ok = await _set_date(page, 0, start_date, "Start Date")
+        if r:
+            r.log_sub_step("Start Date", start_date, "PASS" if ok else "FAIL",
+                           error="" if ok else "Could not fill Start Date")
 
-    # 6. Budget and save
-    await _set_budget(page, budget)
-    if r: r.log_sub_step("Budget", budget, "PASS")
+        ok = await _set_date(page, 1, end_date, "End Date")
+        if r:
+            r.log_sub_step("End Date", end_date, "PASS" if ok else "FAIL",
+                           error="" if ok else "Could not fill End Date")
 
-    saved = await _save_form(page)
-    if r: r.log_sub_step("Save Button", None, "PASS" if saved else "FAIL",
-                          error="" if saved else "Save button click failed")
-    return saved
+        # 6. Budget and save
+        ok = await _set_budget(page, budget)
+        if r:
+            r.log_sub_step("Budget", budget, "PASS" if ok else "FAIL",
+                           error="" if ok else "Could not fill Budget")
+
+        saved = await _save_form(page)
+        if r:
+            r.log_sub_step("Save Button", None, "PASS" if saved else "FAIL",
+                           error="" if saved else "Save button click failed")
+        return saved
+    except Exception as e:
+        print("   [ERR] Project form: {}".format(e))
+        if r:
+            r.log_sub_step("Project Form", None, "FAIL",
+                           error="Unexpected project form error: {}".format(e))
+        return False
 
 
 async def _set_text_input(page, value):
     """Fill the first visible MUI text input (typically the Name field)."""
     try:
         inp = page.locator("input.MuiInputBase-input[type='text']").first
-        await inp.scroll_into_view_if_needed(timeout=2000)
-        await inp.click(click_count=3, timeout=2000)   # triple-click to select existing text
-        await inp.fill(value)
-        print("   [OK] Text input: {!r}".format(value))
+        await inp.wait_for(state="visible", timeout=5000)
+        # Use fill() directly — it clears + fills and avoids MUI re-render
+        # detachment that triple-click can cause
+        await inp.fill(value, timeout=5000)
+        actual = await inp.input_value()
+        if actual == value:
+            print("   [OK] Text input: {!r}".format(value))
+            return True
+        print("   [WARN] Text input: set {!r} but read back {!r}".format(value, actual))
+        return False
     except Exception as e:
         print("   [ERR] Text input: {}".format(e))
+        return False
 
 
 async def _set_textarea(page, value):
     """Fill the first visible MUI textarea (typically the Description field)."""
     try:
         ta = page.locator("textarea.MuiInputBase-input").first
-        await ta.scroll_into_view_if_needed(timeout=2000)
-        await ta.click(timeout=2000)
-        await ta.fill(value)
-        print("   [OK] Textarea filled")
+        await ta.wait_for(state="visible", timeout=5000)
+        # Use fill() directly — triple-click before fill was causing MUI
+        # re-renders that detached the element reference
+        await ta.fill(value, timeout=5000)
+        actual = await ta.input_value()
+        if actual == value:
+            print("   [OK] Textarea filled")
+            return True
+        print("   [WARN] Textarea: set {!r} but read back {!r}".format(value, actual))
+        return False
     except Exception as e:
         print("   [ERR] Textarea: {}".format(e))
+        return False
 
 
 async def _set_budget(page, budget):
@@ -154,9 +223,12 @@ async def _set_budget(page, budget):
         await inp.click(click_count=3, timeout=2000)
         await inp.fill(budget)
         print("   [OK] Budget: {!r}".format(budget))
+        ok = True
     except Exception as e:
         print("   [ERR] Budget: {}".format(e))
+        ok = False
     await _wait(page, T_SHORT)
+    return ok
 
 
 async def _set_date(page, picker_idx, date_val, desc):
@@ -181,7 +253,7 @@ async def _set_date(page, picker_idx, date_val, desc):
         mm, dd, yyyy = parts[0].zfill(2), parts[1].zfill(2), parts[2].zfill(4)
     except Exception as exc:
         print("   [ERR] {}: bad date format '{}' — {}".format(desc, date_val, exc))
-        return
+        return False
 
     print("   [DATE] {}: {}/{}/{}".format(desc, mm, dd, yyyy))
 
@@ -190,7 +262,7 @@ async def _set_date(page, picker_idx, date_val, desc):
     if picker_idx >= cnt:
         print("   [ERR] {}: only {} picker(s) found, needed index {}".format(
             desc, cnt, picker_idx))
-        return
+        return False
 
     picker = pickers.nth(picker_idx)
 
@@ -215,12 +287,16 @@ async def _set_date(page, picker_idx, date_val, desc):
     ok_m = await _fill_seg("Month", mm)
     ok_d = await _fill_seg("Day",   dd)
     ok_y = await _fill_seg("Year",  yyyy)
-    if not ok_m: await _fill_seg("Month", mm)
-    if not ok_d: await _fill_seg("Day",   dd)
-    if not ok_y: await _fill_seg("Year",  yyyy)
+    if not ok_m: ok_m = await _fill_seg("Month", mm)
+    if not ok_d: ok_d = await _fill_seg("Day",   dd)
+    if not ok_y: ok_y = await _fill_seg("Year",  yyyy)
 
     await page.keyboard.press("Tab")   # confirm the date selection
     await _wait(page, T_DATE_SEG)
+    # Year aria-valuetext is consistently None on this date picker — the digits
+    # are still typed and accepted. Only Month and Day confirm the picker
+    # responded. Returning False here would cause false FAIL reports.
+    return ok_m and ok_d
 
 
 async def _save_form(page):

@@ -222,7 +222,7 @@ class _TimesheetState:
         self._row_wait             = 0
         self._submit_wait          = 0
         self._tt_wait              = 0
-        self.MAX_WAIT              = 3
+        self.MAX_WAIT              = 1
 
     def reset(self):
         self.__init__()
@@ -246,7 +246,7 @@ class _CloneState:
         self._tt_wait              = 0
         self._prefill_wait         = 0
         self._verify_wait          = 0
-        self.MAX_WAIT              = 5
+        self.MAX_WAIT              = 1
 
     def reset(self):
         self.__init__()
@@ -282,7 +282,7 @@ class _ApprovalState:
         self._action_wait          = 0
         self._verify_wait          = 0
         self._click_err_count      = 0
-        self.MAX_WAIT              = 2
+        self.MAX_WAIT              = 1
 
     def reset(self):
         self.__init__()
@@ -578,10 +578,9 @@ async def _decide_clone_last_week(els, url, goal, page=None):
         print("[CLONE] Pre-fill btn not found ({}/{})".format(
             s._prefill_wait, s.MAX_WAIT))
         if s._prefill_wait >= s.MAX_WAIT:
-            if r: r.update_last_step(False,
-                error="Pre-fill button not found — is page on Enter Timesheets tab?")
-            return {"action": "done", "result": "FAIL",
-                    "reason": "Pre-fill button not found after {} waits".format(s.MAX_WAIT)}
+            err = "Pre-fill button not found — is page on Enter Timesheets tab?"
+            if r: r.update_last_step(False, error=err)
+            return {"action": "done", "result": "FAIL", "reason": err}
         return {"action": "wait", "seconds": 1}
 
     if not s.date_navigated and page is not None:
@@ -723,9 +722,26 @@ async def _decide_add_timesheet(els, url, goal, page=None):
 
         s._submit_wait += 1
         if s._submit_wait >= s.MAX_WAIT:
-            if r: r.update_last_step(False, error="Submit stayed disabled")
-            return {"action": "done", "result": "FAIL",
-                    "reason": "Submit button remained disabled"}
+            dom_raw = els.get("dom_raw") or []
+            project_not_selected = any(
+                "select project" in (el.get("text") or "").lower()
+                for el in dom_raw
+                if el.get("tag", "").lower() == "button"
+            )
+            empty_hours = any(
+                (el.get("value") or "").strip() in ("", "0")
+                for el in dom_raw
+                if el.get("tag", "").lower() == "input"
+                and (el.get("type") or "").lower() == "number"
+            )
+            if project_not_selected:
+                err = "Timesheet submit disabled — Project/Job has not been selected for one or more rows"
+            elif empty_hours:
+                err = "Timesheet submit disabled — hours are missing for one or more day columns"
+            else:
+                err = "Timesheet submit disabled — form may be incomplete (check all hours and project selections)"
+            if r: r.update_last_step(False, error=err)
+            return {"action": "done", "result": "FAIL", "reason": err}
         return {"action": "wait", "seconds": 1}
 
     if not s.date_navigated and page is not None:
@@ -751,9 +767,21 @@ async def _decide_add_timesheet(els, url, goal, page=None):
                 return step
             s._row_wait += 1
             if s._row_wait >= s.MAX_WAIT:
-                if r: r.update_last_step(False, error="Add Row not found")
-                return {"action": "done", "result": "FAIL",
-                        "reason": "Add Row not found (row {})".format(idx)}
+                dom_raw = els.get("dom_raw") or []
+                locked = any(
+                    kw in (el.get("text") or "").lower()
+                    for el in dom_raw
+                    for kw in ("submitted", "approved", "locked", "read-only", "readonly")
+                    if el.get("tag", "").lower() not in ("input", "button", "script")
+                )
+                week_str = s.monday.strftime("%b %d, %Y") if s.monday else "selected week"
+                err = (
+                    "'Add Row' button not found — timesheet for week of {} appears to be already submitted or locked".format(week_str)
+                    if locked else
+                    "'Add Row' button not found — timesheet may still be loading or the Enter Timesheets tab is not active"
+                )
+                if r: r.update_last_step(False, error=err)
+                return {"action": "done", "result": "FAIL", "reason": err}
             return {"action": "wait", "seconds": 1}
 
         if state == "ready":
@@ -1055,9 +1083,9 @@ async def _decide_approve_timesheet(els, url, goal, page=None):
 
         s._tab_wait += 1
         if s._tab_wait >= s.MAX_WAIT:
-            if r: r.update_last_step(False, error="Approval tab not found")
-            return {"action": "done", "result": "FAIL",
-                    "reason": "Approval Requests tab not found"}
+            err = "Approval Requests tab not found — page may still be loading or user may not have approval permissions"
+            if r: r.update_last_step(False, error=err)
+            return {"action": "done", "result": "FAIL", "reason": err}
         return {"action": "wait", "seconds": 1}
 
     # ── Step A2: Navigate date on Approval tab ─────────────────
@@ -1088,10 +1116,9 @@ async def _decide_approve_timesheet(els, url, goal, page=None):
                     else:
                         s._proj_wait += 1
                         if s._proj_wait >= s.MAX_WAIT:
-                            if r: r.update_last_step(False,
-                                    error="Projects button not found")
-                            return {"action": "done", "result": "FAIL",
-                                    "reason": "Projects filter button not found"}
+                            err = "Projects filter button not found — the approval filter panel may not have opened correctly"
+                            if r: r.update_last_step(False, error=err)
+                            return {"action": "done", "result": "FAIL", "reason": err}
                         return {"action": "wait", "seconds": 1}
 
                     inp = await page.query_selector(
