@@ -98,6 +98,10 @@ _SAVE_SUCCESS_PHRASES = (
     "successfully updated",
     "changes saved",
     "project saved",
+    "created successfully",
+    "project created",
+    "successfully created",
+    "added successfully",
 )
 
 _DUPLICATE_PHRASES = (
@@ -218,7 +222,7 @@ class _CreateState:
         self.last_name    = ""
         self._form_wait   = 0
         self._verify_wait = 0
-        self.MAX_WAIT     = 4
+        self.MAX_WAIT     = 3
 
     def reset(self):
         self.__init__()
@@ -327,10 +331,11 @@ async def _decide_create(els, url):
 
     s._form_wait += 1
     if s._form_wait > s.MAX_WAIT:
+        err = ("'New Project' button not found — Projects page may not have loaded correctly "
+               "or you may not have permission to create projects")
         if r:
-            r.update_last_step(False, error="'New Project' button not found on page")
-        return {"action": "done", "result": "FAIL",
-                "reason": "'New Project' button not found on page"}
+            r.update_last_step(False, error=err)
+        return {"action": "done", "result": "FAIL", "reason": err}
     return {"action": "wait", "seconds": 1}
 
 
@@ -354,7 +359,7 @@ class _UpdateState:
         self._edit_wait   = 0
         self._verify_wait = 0
         self.interacted   = set()
-        self.MAX_WAIT     = 4
+        self.MAX_WAIT     = 3
 
     def reset(self):
         self.__init__()
@@ -481,10 +486,10 @@ async def _decide_update(els, url, goal):
             return {"action": "click", "selector": eb["selector"]}
         s._edit_wait += 1
         if s._edit_wait >= s.MAX_WAIT:
+            err = "Project '{}' opened but Edit button is not available — project may be read-only".format(s.target_name)
             if r:
-                r.update_last_step(False, error="'Edit' button not found")
-            return {"action": "done", "result": "FAIL",
-                    "reason": "'Edit' button not found"}
+                r.update_last_step(False, error=err)
+            return {"action": "done", "result": "FAIL", "reason": err}
         return {"action": "wait", "seconds": 1}
 
     # ── Click View ────────────────────────────────────────────
@@ -501,10 +506,20 @@ async def _decide_update(els, url, goal):
             return {"action": "click", "selector": vb["selector"]}
         s._view_wait += 1
         if s._view_wait >= s.MAX_WAIT:
+            dom_raw = els.get("dom_raw") or []
+            name_in_dom = any(
+                s.target_name.lower() in (el.get("text") or "").lower()
+                for el in dom_raw
+                if el.get("tag", "").lower() not in ("input", "button", "script")
+            )
+            err = (
+                "Project '{}' found in results but View button is not available".format(s.target_name)
+                if name_in_dom else
+                "Project '{}' not found in search results — cannot update".format(s.target_name)
+            )
             if r:
-                r.update_last_step(False, error="'View' button not found")
-            return {"action": "done", "result": "FAIL",
-                    "reason": "'View' button not found"}
+                r.update_last_step(False, error=err)
+            return {"action": "done", "result": "FAIL", "reason": err}
         return {"action": "wait", "seconds": 1}
 
     # ── Search for project ────────────────────────────────────
@@ -530,10 +545,10 @@ async def _decide_update(els, url, goal):
                     "text": s.target_name}
         s._search_wait += 1
         if s._search_wait >= s.MAX_WAIT:
+            err = "Search input not found — Projects page may not have loaded correctly (url: {})".format(url)
             if r:
-                r.update_last_step(False, error="Search input not found")
-            return {"action": "done", "result": "FAIL",
-                    "reason": "Search input not found"}
+                r.update_last_step(False, error=err)
+            return {"action": "done", "result": "FAIL", "reason": err}
         return {"action": "wait", "seconds": 1}
 
     return {"action": "wait", "seconds": 1}
@@ -682,10 +697,20 @@ async def _decide_delete(els, url, goal):
                     (el.get("text") or "")[:30],
                     (el.get("class") or "")[:60]))
         if s._delete_wait >= s.MAX_WAIT:
+            dom_raw = els.get("dom_raw") or []
+            name_in_dom = any(
+                s.target_name.lower() in (el.get("text") or "").lower()
+                for el in dom_raw
+                if el.get("tag", "").lower() not in ("input", "button", "script")
+            )
+            err = (
+                "Project '{}' found in results but Delete button is not available".format(s.target_name)
+                if name_in_dom else
+                "Project '{}' not found in search results — nothing to delete".format(s.target_name)
+            )
             if r:
-                r.update_last_step(False, error="'Delete' button not found in search results")
-            return {"action": "done", "result": "FAIL",
-                    "reason": "'Delete' button not found in search results"}
+                r.update_last_step(False, error=err)
+            return {"action": "done", "result": "FAIL", "reason": err}
         return {"action": "wait", "seconds": 1}
 
     # ── Step 2: Search ────────────────────────────────────────
@@ -711,10 +736,10 @@ async def _decide_delete(els, url, goal):
                     "text": s.target_name}
         s._search_wait += 1
         if s._search_wait >= s.MAX_WAIT:
+            err = "Search input not found — Projects page may not have loaded correctly (url: {})".format(url)
             if r:
-                r.update_last_step(False, error="Search input not found")
-            return {"action": "done", "result": "FAIL",
-                    "reason": "Search input not found"}
+                r.update_last_step(False, error=err)
+            return {"action": "done", "result": "FAIL", "reason": err}
         return {"action": "wait", "seconds": 1}
 
     return {"action": "wait", "seconds": 1}
@@ -730,7 +755,7 @@ class _CreateEmptyState:
         self.submitted  = False
         self._form_wait = 0
         self._wait_cnt  = 0
-        self.MAX_WAIT   = 4
+        self.MAX_WAIT   = 1
 
     def reset(self):
         self.__init__()
@@ -803,10 +828,11 @@ async def _decide_create_empty(els, url):
 
     s._form_wait += 1
     if s._form_wait > s.MAX_WAIT:
+        err = ("'New Project' button not found — Projects page may not have loaded correctly "
+               "or you may not have permission to create projects")
         if r:
-            r.update_last_step(False, error="'New Project' button not found")
-        return {"action": "done", "result": "FAIL",
-                "reason": "'New Project' button not found on page"}
+            r.update_last_step(False, error=err)
+        return {"action": "done", "result": "FAIL", "reason": err}
     return {"action": "wait", "seconds": 1}
 
 
@@ -827,7 +853,7 @@ class _CreateDupState:
         self._p2_form_wait  = 0
         self._p2_ver_wait   = 0
         self._p2_close_wait = 0   # grace ticks after form closes before silent-accept
-        self.MAX_WAIT       = 4
+        self.MAX_WAIT       = 1
 
     def reset(self):
         self.__init__()
@@ -926,10 +952,11 @@ async def _decide_create_duplicate(els, url):
 
         s._p2_form_wait += 1
         if s._p2_form_wait > s.MAX_WAIT:
+            err = ("'New Project' button not found — Projects page may not have loaded correctly "
+                   "or you may not have permission to create projects")
             if r:
-                r.update_last_step(False, error="'New Project' button not found in phase 2")
-            return {"action": "done", "result": "FAIL",
-                    "reason": "'New Project' button not found in phase 2"}
+                r.update_last_step(False, error=err)
+            return {"action": "done", "result": "FAIL", "reason": err}
         return {"action": "wait", "seconds": 1}
 
     # ── Phase 1: Create the project initially ─────────────────
@@ -988,10 +1015,11 @@ async def _decide_create_duplicate(els, url):
 
     s._p1_form_wait += 1
     if s._p1_form_wait > s.MAX_WAIT:
+        err = ("'New Project' button not found — Projects page may not have loaded correctly "
+               "or you may not have permission to create projects")
         if r:
-            r.update_last_step(False, error="'New Project' button not found in phase 1")
-        return {"action": "done", "result": "FAIL",
-                "reason": "'New Project' button not found on page"}
+            r.update_last_step(False, error=err)
+        return {"action": "done", "result": "FAIL", "reason": err}
     return {"action": "wait", "seconds": 1}
 
 
@@ -1136,7 +1164,7 @@ class _GenericNegCreateState:
         self._form_wait  = 0
         self._wait_cnt   = 0
         self._close_wait = 0   # grace ticks after form closes before deciding outcome
-        self.MAX_WAIT    = 4
+        self.MAX_WAIT    = 1
 
     def reset(self):
         self.__init__()
@@ -1354,52 +1382,12 @@ async def _decide_neg_create_generic(els, url, sc_key):
 # ============================================================
 
 NEGATIVE_CREATE_SCENARIOS = [
-    {
-        "id":         "NEG-C-01",
-        "action_key": "create_empty_name",
-        "name":       "Empty Project Name",
-        "description": "Project Name = '' — expect validation error",
-    },
-    {
-        "id":         "NEG-C-02",
-        "action_key": "create_duplicate",
-        "name":       "Duplicate Project Name",
-        "description": "Create project twice with same name — expect duplicate error",
-    },
-    {
-        "id":         "NEG-C-03",
-        "action_key": "neg_c_03",
-        "name":       "End Date Before Start Date",
-        "description": "Start = today+30, End = today — expect validation error",
-    },
-    {
-        "id":         "NEG-C-04",
-        "action_key": "neg_c_04",
-        "name":       "Billable Without Client",
-        "description": "Billing Type = Billable, Client = empty — expect validation",
-    },
-    {
-        "id":         "NEG-C-05",
-        "action_key": "neg_c_05",
-        "name":       "Special Characters in Name",
-        "description": "Name = <script>alert</script>@#$%^&*() — expect validation or sanitization",
-    },
-    {
-        "id":         "NEG-C-06",
-        "action_key": "neg_c_06",
-        "name":       "Very Long Name (300 chars)",
-        "description": "Name = 'A' * 300 — expect validation or truncation",
-    },
-    {
-        "id":         "NEG-C-07",
-        "action_key": "neg_c_07",
-        "name":       "Zero Budget",
-        "description": "Budget = 0 — WARN if allowed, PASS if blocked",
-    },
-    {
-        "id":         "NEG-C-08",
-        "action_key": "neg_c_08",
-        "name":       "Same Start and End Date",
-        "description": "Start = End = today — PASS if allowed or validated, FAIL only on crash",
-    },
+    {"id": "NEG-C-01", "action_key": "create_empty_name", "name": "Empty Project Name", "description": "Project Name = '' — expect validation error"},
+    {"id": "NEG-C-02", "action_key": "create_duplicate", "name": "Duplicate Project Name", "description": "Create project twice with same name — expect duplicate error"},
+    {"id": "NEG-C-03", "action_key": "neg_c_03", "name": "End Date Before Start Date", "description": "Start = today+30, End = today — expect validation error"},
+    {"id": "NEG-C-04", "action_key": "neg_c_04", "name": "Billable Without Client", "description": "Billing Type = Billable, Client = empty — expect validation"},
+    {"id": "NEG-C-05", "action_key": "neg_c_05", "name": "Special Characters in Name", "description": "Name = <script>alert</script>@#$%^&*() — expect validation or sanitization"},
+    {"id": "NEG-C-06", "action_key": "neg_c_06", "name": "Very Long Name (300 chars)", "description": "Name = 'A' * 300 — expect validation or truncation"},
+    {"id": "NEG-C-07", "action_key": "neg_c_07", "name": "Zero Budget", "description": "Budget = 0 — WARN if allowed, PASS if blocked"},
+    {"id": "NEG-C-08", "action_key": "neg_c_08", "name": "Same Start and End Date", "description": "Start = End = today — PASS if allowed or validated, FAIL only on crash"},
 ]

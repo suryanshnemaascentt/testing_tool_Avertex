@@ -556,7 +556,7 @@ class _AddJobState:
         self._dom_at_submit = 0   # DOM count snapshot when save was clicked
 
         self.interacted    = set()
-        self.MAX_WAIT      = 2
+        self.MAX_WAIT      = 1
 
     def reset(self):
         self.__init__()
@@ -761,11 +761,11 @@ async def _decide_add_job(els, url, goal):
         print("[JOB] Step 5: Add Job not found ({}/{})".format(
             s._add_wait, s.MAX_WAIT))
         if s._add_wait >= s.MAX_WAIT:
+            err = ("'Add Job' button not found — Jobs tab may be empty "
+                   "or the project does not allow adding jobs")
             if r:
-                r.update_last_step(False,
-                    error="'Add Job' button not found on Jobs tab")
-            return {"action": "done", "result": "FAIL",
-                    "reason": "'Add Job' button not found"}
+                r.update_last_step(False, error=err)
+            return {"action": "done", "result": "FAIL", "reason": err}
         return {"action": "wait", "seconds": 1}
 
     # ── Step 4: Click Jobs tab ────────────────────────────────
@@ -805,11 +805,20 @@ async def _decide_add_job(els, url, goal):
 
         s._view_wait += 1
         if s._view_wait >= s.MAX_WAIT:
+            dom_raw = els.get("dom_raw") or []
+            name_in_dom = any(
+                s.project_name.lower() in (el.get("text") or "").lower()
+                for el in dom_raw
+                if el.get("tag", "").lower() not in ("input", "button", "script")
+            )
+            err = (
+                "Project '{}' found in results but View button is not available".format(s.project_name)
+                if name_in_dom else
+                "Project '{}' not found in search results — cannot add job".format(s.project_name)
+            )
             if r:
-                r.update_last_step(False,
-                    error="'View' button not found after search")
-            return {"action": "done", "result": "FAIL",
-                    "reason": "'View' button not found"}
+                r.update_last_step(False, error=err)
+            return {"action": "done", "result": "FAIL", "reason": err}
         return {"action": "wait", "seconds": 1}
 
     # ── Step 2: Search project ────────────────────────────────
@@ -836,11 +845,10 @@ async def _decide_add_job(els, url, goal):
 
         s._search_wait += 1
         if s._search_wait >= s.MAX_WAIT:
+            err = "Search input not found — Projects page may not have loaded correctly (url: {})".format(url)
             if r:
-                r.update_last_step(False,
-                    error="Search input not found on /projects page")
-            return {"action": "done", "result": "FAIL",
-                    "reason": "Search input not found"}
+                r.update_last_step(False, error=err)
+            return {"action": "done", "result": "FAIL", "reason": err}
         return {"action": "wait", "seconds": 1}
 
     return {"action": "wait", "seconds": 1}

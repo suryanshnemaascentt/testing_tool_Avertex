@@ -1,4 +1,5 @@
 import asyncio
+from report.test_report import get_reporter
 from ._shared import _wait
 
 # ============================================================
@@ -263,228 +264,273 @@ async def _pick_project_and_job(page, project_name: str, job_name: str,
 
 
 async def fill_timesheet_row_form(page, params: dict):
-    project_name = params.get("project_name", "")
-    job_name     = params.get("job_name", "")
-    hours        = str(params.get("hours", "8"))
-    location_raw = params.get("location", "ascentt office")
-    remarks      = params.get("remarks", "")
-    row_index    = int(params.get("row_index", 0))
-    location_opt = _norm_location(location_raw)
+    r = get_reporter()
+    try:
+        project_name = params.get("project_name", "")
+        job_name     = params.get("job_name", "")
+        hours        = str(params.get("hours", "8"))
+        location_raw = params.get("location", "ascentt office")
+        remarks      = params.get("remarks", "")
+        row_index    = int(params.get("row_index", 0))
+        location_opt = _norm_location(location_raw)
 
-    print("\n" + "=" * 70)
-    print("[ROW {}] Project: {} | Job: {} | Hours: {} | Loc: {}".format(
-        row_index, project_name, job_name, hours, location_opt))
-    print("=" * 70)
+        print("\n" + "=" * 70)
+        print("[ROW {}] Project: {} | Job: {} | Hours: {} | Loc: {}".format(
+            row_index, project_name, job_name, hours, location_opt))
+        print("=" * 70)
 
-    # STEP 0: Add Row if not first
-    if row_index > 0:
-        print("[STEP 0] Clicking 'Add Row'...")
-        add_btns = await page.query_selector_all("button:has-text('Add Row')")
-        if add_btns:
-            await add_btns[0].scroll_into_view_if_needed()
-            await add_btns[0].click()
-            await page.wait_for_timeout(900)
-            print("[STEP 0] ✓")
-        else:
-            print("[STEP 0] ⚠ Not found")
+        # STEP 0: Add Row if not first
+        if row_index > 0:
+            print("[STEP 0] Clicking 'Add Row'...")
+            try:
+                add_btns = await page.query_selector_all("button:has-text('Add Row')")
+                if add_btns:
+                    await add_btns[0].scroll_into_view_if_needed()
+                    await add_btns[0].click()
+                    await page.wait_for_timeout(900)
+                    print("[STEP 0] ✓")
+                    if r:
+                        r.log_sub_step("Add Row", row_index, "PASS")
+                else:
+                    print("[STEP 0] ⚠ Not found")
+                    if r:
+                        r.log_sub_step("Add Row", row_index, "FAIL",
+                                       error="Add Row button not found")
+            except Exception as e:
+                print("[STEP 0] ERROR: {}".format(e))
+                if r:
+                    r.log_sub_step("Add Row", row_index, "FAIL",
+                                   error="Could not add row: {}".format(e))
 
-    # STEP 1+2: Project + Job in one tree
-    print("\n[STEP 1+2] Opening project/job tree...")
-    project_btns = await page.query_selector_all("#timesheet-project-select")
-    if not project_btns:
-        project_btns = await page.query_selector_all('button:has-text("Select Project")')
+        # STEP 1+2: Project + Job in one tree
+        print("\n[STEP 1+2] Opening project/job tree...")
+        project_btns = await page.query_selector_all("#timesheet-project-select")
+        if not project_btns:
+            project_btns = await page.query_selector_all('button:has-text("Select Project")')
 
-    if not project_btns:
-        print("[STEP 1+2] ✗ Project button not found")
-        return False
-
-    trigger = project_btns[-1]
-    await trigger.scroll_into_view_if_needed()
-    await trigger.click()
-    await page.wait_for_timeout(800)
-
-    project_ok, job_ok = await _pick_project_and_job(
-        page, project_name, job_name, timeout=8000)
-
-    print("[STEP 1] {}".format("✓ OK" if project_ok else "✗ FAILED"))
-    print("[STEP 2] {}".format("✓ OK" if job_ok else "✗ FAILED"))
-
-    if not project_ok:
-        return False
-
-    await page.wait_for_timeout(1000)
-
-    # STEP 3: Hours
-    print("\n[STEP 3] Filling hours...")
-    all_inputs = await page.query_selector_all("#timesheet-hours-input")
-    if not all_inputs:
-        all_inputs = await page.query_selector_all(
-            "input[type='number'][min='0'][max='24']")
-
-    row_inputs = all_inputs[-_DAY_COLS:] if len(all_inputs) >= _DAY_COLS else all_inputs
-    print("[STEP 3] {} input(s)".format(len(row_inputs)))
-
-    day_names = ["Mon", "Tue", "Wed", "Thu", "Fri"]
-    hours_filled = 0
-    for i, inp in enumerate(row_inputs):
-        day = day_names[i] if i < len(day_names) else "Day{}".format(i + 1)
-        try:
-            if await inp.evaluate("el => el.disabled"):
-                print("   {} → ⏭ disabled".format(day))
-                continue
-            await inp.scroll_into_view_if_needed()
-            await inp.click()
-            await page.keyboard.press("Control+a")
-            await page.keyboard.press("Backspace")
-            await inp.type(hours, delay=50)
-            await page.wait_for_timeout(200)
-            print("   {} → {} hrs ✓".format(day, hours))
-            hours_filled += 1
-        except Exception as e:
-            print("   {} → ERROR: {}".format(day, e))
-
-    print("[STEP 3] {} day(s) filled".format(hours_filled))
-    await page.wait_for_timeout(400)
-
-    # ── STEP 4: Location — set ALL 5 day comboboxes ──────────
-    print("\n[STEP 4] Location: '{}'".format(location_opt))
-
-    async def _set_one_location_combo(cb):
-        """Open one combobox, deselect wrong, select right, close."""
-        try:
-            current = (await cb.inner_text()).strip()
-            # Already exactly correct (only target selected)
-            if current.strip().lower() == location_opt.lower():
-                print("   ✓ Already '{}'".format(current))
-                return True
-
-            await cb.scroll_into_view_if_needed()
-            await cb.click(force=True, timeout=4000)
-            await page.wait_for_timeout(500)
-
-            await page.wait_for_selector(
-                'ul[role="listbox"] li[role="option"]', timeout=2000)
-
-            options = await page.query_selector_all(
-                'ul[role="listbox"] li[role="option"]')
-
-            for opt in options:
-                opt_text = (await opt.inner_text()).strip()
-                cls = await opt.get_attribute("class") or ""
-                is_sel = "Mui-selected" in cls
-                is_target = opt_text.lower() == location_opt.lower()
-
-                if is_sel and not is_target:
-                    await opt.click()
-                    await page.wait_for_timeout(150)
-                    # Listbox may close — reopen
-                    still = await page.query_selector('ul[role="listbox"]')
-                    if not still:
-                        await cb.click(force=True, timeout=3000)
-                        await page.wait_for_timeout(400)
-                elif not is_sel and is_target:
-                    await opt.click()
-                    await page.wait_for_timeout(150)
-
-            await page.keyboard.press("Escape")
-            await page.wait_for_timeout(400)
-            # Wait for menu to close
-            for _ in range(10):
-                menu = await page.query_selector('[id^="menu-"]')
-                if not menu:
-                    break
-                await page.wait_for_timeout(150)
-            return True
-        except Exception as e:
-            print("   combo err: {}".format(e))
-            await page.keyboard.press("Escape")
-            await page.wait_for_timeout(300)
+        if not project_btns:
+            print("[STEP 1+2] ✗ Project button not found")
+            if r:
+                r.log_sub_step("Project Selection", project_name, "FAIL",
+                               error="Project button not found")
             return False
 
-    set_count = 0
-    for attempt in range(8):  # up to 8 comboboxes (safety margin)
-        combos = await page.query_selector_all(
-            "div[role='combobox'].MuiSelect-select")
-        if not combos:
-            break
+        trigger = project_btns[-1]
+        await trigger.scroll_into_view_if_needed()
+        await trigger.click()
+        await page.wait_for_timeout(800)
 
-        known = {"ascentt office", "wfh", "client office", "travel/remote",
-                 "travel", "remote"}
-        loc_combos = []
-        for cb in combos:
-            txt = (await cb.inner_text()).strip().lower()
-            if any(k in txt for k in known) or txt in known:
-                loc_combos.append(cb)
+        project_ok, job_ok = await _pick_project_and_job(
+            page, project_name, job_name, timeout=8000)
 
-        if not loc_combos:
-            loc_combos = combos  # fallback
+        print("[STEP 1] {}".format("✓ OK" if project_ok else "✗ FAILED"))
+        print("[STEP 2] {}".format("✓ OK" if job_ok else "✗ FAILED"))
+        if r:
+            r.log_sub_step("Project Selection", project_name, "PASS" if project_ok else "FAIL",
+                           error="" if project_ok else "Could not select project")
+            r.log_sub_step("Job Selection", job_name, "PASS" if job_ok else "FAIL",
+                           error="" if job_ok else "Could not select job")
 
-        print("[STEP 4] {} location combobox(es) visible".format(len(loc_combos)))
+        if not project_ok:
+            return False
 
-        for cb in loc_combos:
-            ok = await _set_one_location_combo(cb)
-            if ok:
-                set_count += 1
+        await page.wait_for_timeout(1000)
 
-        # If all visible combos are now correct, stop
-        all_correct = True
-        combos_now = await page.query_selector_all(
-            "div[role='combobox'].MuiSelect-select")
-        for cb in combos_now:
-            txt = (await cb.inner_text()).strip().lower()
-            if any(k in txt for k in known) or txt in known:
-                if txt != location_opt.lower():
-                    all_correct = False
-                    break
-        if all_correct:
-            break
+        # STEP 3: Hours
+        print("\n[STEP 3] Filling hours...")
+        all_inputs = await page.query_selector_all("#timesheet-hours-input")
+        if not all_inputs:
+            all_inputs = await page.query_selector_all(
+                "input[type='number'][min='0'][max='24']")
 
-        await page.wait_for_timeout(200)
+        row_inputs = all_inputs[-_DAY_COLS:] if len(all_inputs) >= _DAY_COLS else all_inputs
+        print("[STEP 3] {} input(s)".format(len(row_inputs)))
 
-    print("[STEP 4] {} set → '{}'".format(set_count, location_opt))
-    await page.wait_for_timeout(500)
-
-    # ── STEP 5: Remarks — wait for popover to close first ──────
-    if remarks:
-        print("\n[STEP 5] Remarks: '{}'".format(remarks[:40]))
-        try:
-            # Wait for any open MUI Popover/Menu to fully close
-            await page.wait_for_function(
-                """() => {
-                    const popovers = document.querySelectorAll(
-                        '.MuiPopover-root, .MuiMenu-root, [id^="menu-"]');
-                    return popovers.length === 0 ||
-                           Array.from(popovers).every(p =>
-                               p.style.display === 'none' ||
-                               !document.body.contains(p));
-                }""",
-                timeout=4000
-            )
-        except Exception:
-            await page.wait_for_timeout(1000)
-
-        try:
-            ta = await page.query_selector("#timesheet-remarks-input")
-            if not ta:
-                tas = await page.query_selector_all("textarea")
-                for t in tas:
-                    if await t.is_visible():
-                        ta = t
-                        break
-            if ta:
-                await ta.scroll_into_view_if_needed()
-                await page.wait_for_timeout(300)
-                # Use JavaScript click to bypass any overlay
-                await page.evaluate("el => el.click()", ta)
-                await page.wait_for_timeout(200)
+        day_names = ["Mon", "Tue", "Wed", "Thu", "Fri"]
+        hours_filled = 0
+        for i, inp in enumerate(row_inputs):
+            day = day_names[i] if i < len(day_names) else "Day{}".format(i + 1)
+            try:
+                if await inp.evaluate("el => el.disabled"):
+                    print("   {} → ⏭ disabled".format(day))
+                    if r:
+                        r.log_sub_step("Hours {}".format(day), "(disabled)", "PASS")
+                    continue
+                await inp.scroll_into_view_if_needed()
+                await inp.click()
                 await page.keyboard.press("Control+a")
-                await ta.type(remarks, delay=30)
-                print("[STEP 5] ✓")
-            else:
-                print("[STEP 5] ⚠ Textarea not found")
-        except Exception as e:
-            print("[STEP 5] ERROR: {}".format(e))
+                await page.keyboard.press("Backspace")
+                await inp.type(hours, delay=50)
+                await page.wait_for_timeout(200)
+                print("   {} → {} hrs ✓".format(day, hours))
+                hours_filled += 1
+                if r:
+                    r.log_sub_step("Hours {}".format(day), hours, "PASS")
+            except Exception as e:
+                print("   {} → ERROR: {}".format(day, e))
+                if r:
+                    r.log_sub_step("Hours {}".format(day), hours, "FAIL",
+                                   error="Could not fill hours for {}: {}".format(day, e))
 
-    await page.wait_for_timeout(500)
-    print("\n[ROW {}] ✓ COMPLETE".format(row_index))
-    return True
+        print("[STEP 3] {} day(s) filled".format(hours_filled))
+        await page.wait_for_timeout(400)
+
+        # ── STEP 4: Location — set ALL 5 day comboboxes ──────────
+        print("\n[STEP 4] Location: '{}'".format(location_opt))
+
+        async def _set_one_location_combo(cb):
+            """Open one combobox, deselect wrong, select right, close."""
+            try:
+                current = (await cb.inner_text()).strip()
+                # Already exactly correct (only target selected)
+                if current.strip().lower() == location_opt.lower():
+                    print("   ✓ Already '{}'".format(current))
+                    return True
+
+                await cb.scroll_into_view_if_needed()
+                await cb.click(force=True, timeout=4000)
+                await page.wait_for_timeout(500)
+
+                await page.wait_for_selector(
+                    'ul[role="listbox"] li[role="option"]', timeout=2000)
+
+                options = await page.query_selector_all(
+                    'ul[role="listbox"] li[role="option"]')
+
+                for opt in options:
+                    opt_text = (await opt.inner_text()).strip()
+                    cls = await opt.get_attribute("class") or ""
+                    is_sel = "Mui-selected" in cls
+                    is_target = opt_text.lower() == location_opt.lower()
+
+                    if is_sel and not is_target:
+                        await opt.click()
+                        await page.wait_for_timeout(150)
+                        # Listbox may close — reopen
+                        still = await page.query_selector('ul[role="listbox"]')
+                        if not still:
+                            await cb.click(force=True, timeout=3000)
+                            await page.wait_for_timeout(400)
+                    elif not is_sel and is_target:
+                        await opt.click()
+                        await page.wait_for_timeout(150)
+
+                await page.keyboard.press("Escape")
+                await page.wait_for_timeout(400)
+                # Wait for menu to close
+                for _ in range(10):
+                    menu = await page.query_selector('[id^="menu-"]')
+                    if not menu:
+                        break
+                    await page.wait_for_timeout(150)
+                return True
+            except Exception as e:
+                print("   combo err: {}".format(e))
+                await page.keyboard.press("Escape")
+                await page.wait_for_timeout(300)
+                return False
+
+        set_count = 0
+        for attempt in range(8):  # up to 8 comboboxes (safety margin)
+            combos = await page.query_selector_all(
+                "div[role='combobox'].MuiSelect-select")
+            if not combos:
+                break
+
+            known = {"ascentt office", "wfh", "client office", "travel/remote",
+                     "travel", "remote"}
+            loc_combos = []
+            for cb in combos:
+                txt = (await cb.inner_text()).strip().lower()
+                if any(k in txt for k in known) or txt in known:
+                    loc_combos.append(cb)
+
+            if not loc_combos:
+                loc_combos = combos  # fallback
+
+            print("[STEP 4] {} location combobox(es) visible".format(len(loc_combos)))
+
+            for cb in loc_combos:
+                ok = await _set_one_location_combo(cb)
+                if ok:
+                    set_count += 1
+
+            # If all visible combos are now correct, stop
+            all_correct = True
+            combos_now = await page.query_selector_all(
+                "div[role='combobox'].MuiSelect-select")
+            for cb in combos_now:
+                txt = (await cb.inner_text()).strip().lower()
+                if any(k in txt for k in known) or txt in known:
+                    if txt != location_opt.lower():
+                        all_correct = False
+                        break
+            if all_correct:
+                break
+
+            await page.wait_for_timeout(200)
+
+        print("[STEP 4] {} set → '{}'".format(set_count, location_opt))
+        if r:
+            r.log_sub_step("Location", location_opt, "PASS" if set_count > 0 else "FAIL",
+                           error="" if set_count > 0 else "Could not set location")
+        await page.wait_for_timeout(500)
+
+        # ── STEP 5: Remarks — wait for popover to close first ──────
+        if remarks:
+            print("\n[STEP 5] Remarks: '{}'".format(remarks[:40]))
+            try:
+                # Wait for any open MUI Popover/Menu to fully close
+                await page.wait_for_function(
+                    """() => {
+                        const popovers = document.querySelectorAll(
+                            '.MuiPopover-root, .MuiMenu-root, [id^="menu-"]');
+                        return popovers.length === 0 ||
+                               Array.from(popovers).every(p =>
+                                   p.style.display === 'none' ||
+                                   !document.body.contains(p));
+                    }""",
+                    timeout=4000
+                )
+            except Exception:
+                await page.wait_for_timeout(1000)
+
+            try:
+                ta = await page.query_selector("#timesheet-remarks-input")
+                if not ta:
+                    tas = await page.query_selector_all("textarea")
+                    for t in tas:
+                        if await t.is_visible():
+                            ta = t
+                            break
+                if ta:
+                    await ta.scroll_into_view_if_needed()
+                    await page.wait_for_timeout(300)
+                    # Use JavaScript click to bypass any overlay
+                    await page.evaluate("el => el.click()", ta)
+                    await page.wait_for_timeout(200)
+                    await page.keyboard.press("Control+a")
+                    await ta.type(remarks, delay=30)
+                    print("[STEP 5] ✓")
+                    if r:
+                        r.log_sub_step("Remarks", remarks, "PASS")
+                else:
+                    print("[STEP 5] ⚠ Textarea not found")
+                    if r:
+                        r.log_sub_step("Remarks", remarks, "FAIL",
+                                       error="Remarks textarea not found")
+            except Exception as e:
+                print("[STEP 5] ERROR: {}".format(e))
+                if r:
+                    r.log_sub_step("Remarks", remarks, "FAIL",
+                                   error="Could not fill remarks: {}".format(e))
+
+        await page.wait_for_timeout(500)
+        print("\n[ROW {}] ✓ COMPLETE".format(row_index))
+        return True
+    except Exception as e:
+        print("[ROW] ERROR: {}".format(e))
+        if r:
+            r.log_sub_step("Timesheet Row", None, "FAIL",
+                           error="Unexpected timesheet row error: {}".format(e))
+        return False
