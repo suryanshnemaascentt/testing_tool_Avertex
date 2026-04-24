@@ -157,8 +157,10 @@ def scan_dom(dom):
                     or "chevronright" in cls.replace("-", "")):
                 result["next_week_btn"] = el
 
-        if tag == "button" and "add row" in comb and not result["add_row_btn"]:
-            result["add_row_btn"] = el
+        if tag == "button" and not result["add_row_btn"]:
+            _norm = comb.replace("-", " ").replace("_", " ")
+            if "add row" in _norm:
+                result["add_row_btn"] = el
 
         if eid == "timesheet-project-select" and not result["select_project_btn"]:
             result["select_project_btn"] = el
@@ -755,9 +757,14 @@ async def _decide_add_timesheet(els, url, goal, page=None):
         row   = s.rows[idx]
 
         if state == "pending":
-            if idx == 0:
+            # Row 0 special case: if a default empty 'Select Project' row is already
+            # present (fresh week), skip clicking Add Row and fill it directly.
+            if idx == 0 and els.get("select_project_btn"):
                 s.row_states[idx] = "ready"
                 return {"action": "wait", "seconds": 0}
+
+            # All other cases (idx > 0, OR idx == 0 with an existing filled timesheet)
+            # need Add Row clicked to get a fresh empty row.
             ab = els.get("add_row_btn")
             if ab:
                 s.row_states[idx] = "ready"
@@ -765,8 +772,23 @@ async def _decide_add_timesheet(els, url, goal, page=None):
                         "extra_wait_ms": 700}
                 if r: r.log_step(len(r.steps) + 1, step, url)
                 return step
+
             s._row_wait += 1
+            print("[TS] Add Row not found ({}/{})".format(s._row_wait, s.MAX_WAIT))
             if s._row_wait >= s.MAX_WAIT:
+                if idx == 0:
+                    # Row 0 last-resort: click Add Row via the '+' SVG path selector
+                    print("[TS] Row 0 fallback — clicking Add Row via SVG path")
+                    s.row_states[idx] = "ready"
+                    step = {
+                        "action":        "click",
+                        "selector":      "button:has(path[d='M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z'])",
+                        "extra_wait_ms": 700,
+                        "soft_fail":     True,
+                    }
+                    if r: r.log_step(len(r.steps) + 1, step, url)
+                    return step
+
                 dom_raw = els.get("dom_raw") or []
                 locked = any(
                     kw in (el.get("text") or "").lower()

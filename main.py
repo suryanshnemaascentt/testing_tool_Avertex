@@ -866,53 +866,65 @@ def get_inputs():
 # ============================================================
 
 if __name__ == "__main__":
-    module_key, action_key, goal, test_type, neg_selection = get_inputs()
+    import sys
 
-    if test_type == "run_all":
-        asyncio.run(
-            run_all_modules(
-                url   = BASE_URL,
-                items = neg_selection,   # holds the items list from _collect_run_all_inputs
-            )
-        )
+    if "--auto" in sys.argv or "-a" in sys.argv:
+        # ── Fully automated, zero-prompt run ─────────────────
+        # Runs every module + positive + negative tests in order.
+        # No user input required.
+        # Usage:  python main.py --auto
+        from tests.suite_runner import run_full_suite
+        asyncio.run(run_full_suite(url=BASE_URL))
 
-    elif test_type == "positive":
-        asyncio.run(
-            run(
-                url        = BASE_URL,
-                module_key = module_key,
-                action_key = action_key,
-                goal       = goal,
-                test_mode  = True,
-            )
-        )
+    else:
+        # ── Existing interactive CLI (unchanged) ──────────────
+        module_key, action_key, goal, test_type, neg_selection = get_inputs()
 
-    elif test_type == "negative":
-        asyncio.run(
-            run_negative_suite(
-                url                = BASE_URL,
-                module_key         = module_key,
-                action_key         = action_key,
-                selected_scenarios = neg_selection,
+        if test_type == "run_all":
+            asyncio.run(
+                run_all_modules(
+                    url   = BASE_URL,
+                    items = neg_selection,   # holds the items list from _collect_run_all_inputs
+                )
             )
-        )
 
-    elif test_type == "both":
-        # Run positive first, then the selected negative scenarios
-        asyncio.run(
-            run(
-                url        = BASE_URL,
-                module_key = module_key,
-                action_key = action_key,
-                goal       = goal,
-                test_mode  = True,
+        elif test_type == "positive":
+            asyncio.run(
+                run(
+                    url        = BASE_URL,
+                    module_key = module_key,
+                    action_key = action_key,
+                    goal       = goal,
+                    test_mode  = True,
+                )
             )
-        )
-        asyncio.run(
-            run_negative_suite(
-                url                = BASE_URL,
-                module_key         = module_key,
-                action_key         = action_key,
-                selected_scenarios = neg_selection,
+
+        elif test_type == "negative":
+            asyncio.run(
+                run_negative_suite(
+                    url                = BASE_URL,
+                    module_key         = module_key,
+                    action_key         = action_key,
+                    selected_scenarios = neg_selection,
+                )
             )
-        )
+
+        elif test_type == "both":
+            # Run positive first, then the selected negative scenarios
+            asyncio.run(
+                run(
+                    url        = BASE_URL,
+                    module_key = module_key,
+                    action_key = action_key,
+                    goal       = goal,
+                    test_mode  = True,
+                )
+            )
+            asyncio.run(
+                run_negative_suite(
+                    url                = BASE_URL,
+                    module_key         = module_key,
+                    action_key         = action_key,
+                    selected_scenarios = neg_selection,
+                )
+            )
