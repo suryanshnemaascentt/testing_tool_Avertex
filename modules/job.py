@@ -326,8 +326,8 @@ async def _decide_add_job(els, url, goal):
         job_name   = s.job_name_override or "Job_{}".format(
             datetime.now().strftime("%H%M%S"))
         today      = datetime.now()
-        start_date = today.strftime("%Y-%m-%d")
-        end_date   = (today + timedelta(days=7)).strftime("%Y-%m-%d")
+        start_date = (today - timedelta(days=60)).strftime("%Y-%m-%d")
+        end_date   = today.strftime("%Y-%m-%d")
         hours      = "8"   # default hours value
 
         print("[JOB] Filling form: name='{}' start={} end={}".format(

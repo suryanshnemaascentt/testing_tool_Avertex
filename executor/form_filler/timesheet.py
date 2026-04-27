@@ -160,8 +160,9 @@ async def _pick_project_and_job(page, project_name: str, job_name: str,
             await _wait_backdrop_clear(page)
             return False, False
 
-        # EXPAND project by clicking its chevron icon container
-        # DOM: <div class="MuiTreeItem-iconContainer ..."><svg>...</svg></div>
+        # EXPAND project by clicking its chevron icon container.
+        # Use force=True / JS dispatch to bypass the MuiPopover overlay
+        # that intercepts pointer events.
         await matched_item.scroll_into_view_if_needed()
         await page.wait_for_timeout(200)
 
@@ -169,12 +170,18 @@ async def _pick_project_and_job(page, project_name: str, job_name: str,
             ".MuiTreeItem-iconContainer, .MuiSimpleTreeView-itemIconContainer")
 
         if icon_container:
-            await icon_container.click()
+            try:
+                await icon_container.click(timeout=3000)
+            except Exception:
+                await icon_container.dispatch_event("click")
             await page.wait_for_timeout(700)
             print("[TREE] ✓ Chevron clicked — project expanded")
         else:
-            # Fallback: click item content itself
-            await matched_item.click()
+            # Fallback: dispatch click on item content itself
+            try:
+                await matched_item.click(timeout=3000)
+            except Exception:
+                await matched_item.dispatch_event("click")
             await page.wait_for_timeout(700)
             print("[TREE] ✓ Item clicked (chevron fallback)")
 
@@ -235,12 +242,18 @@ async def _pick_project_and_job(page, project_name: str, job_name: str,
         job_cb = await parent.query_selector("input[type='checkbox']")
 
         if job_cb:
-            await job_cb.click()
+            try:
+                await job_cb.click(timeout=3000)
+            except Exception:
+                await job_cb.dispatch_event("click")
             await page.wait_for_timeout(500)
             print("[TREE] ✓ Job checkbox clicked")
             job_ok = True
         else:
-            await matched_job.click()
+            try:
+                await matched_job.click(timeout=3000)
+            except Exception:
+                await matched_job.dispatch_event("click")
             await page.wait_for_timeout(500)
             print("[TREE] ✓ Job label clicked")
             job_ok = True
@@ -279,28 +292,29 @@ async def fill_timesheet_row_form(page, params: dict):
             row_index, project_name, job_name, hours, location_opt))
         print("=" * 70)
 
-        # STEP 0: Add Row if not first
-        if row_index > 0:
-            print("[STEP 0] Clicking 'Add Row'...")
-            try:
-                add_btns = await page.query_selector_all("button:has-text('Add Row')")
-                if add_btns:
-                    await add_btns[0].scroll_into_view_if_needed()
-                    await add_btns[0].click()
-                    await page.wait_for_timeout(900)
-                    print("[STEP 0] ✓")
-                    if r:
-                        r.log_sub_step("Add Row", row_index, "PASS")
-                else:
-                    print("[STEP 0] ⚠ Not found")
-                    if r:
-                        r.log_sub_step("Add Row", row_index, "FAIL",
-                                       error="Add Row button not found")
-            except Exception as e:
-                print("[STEP 0] ERROR: {}".format(e))
+        # STEP 0: Always click Add Row to get a fresh empty row.
+        # The timesheet page may already have existing rows (from prior weeks
+        # or a previous run), so we always add a new row before filling.
+        print("[STEP 0] Clicking 'Add Row'...")
+        try:
+            add_btns = await page.query_selector_all("button:has-text('Add Row')")
+            if add_btns:
+                await add_btns[0].scroll_into_view_if_needed()
+                await add_btns[0].click()
+                await page.wait_for_timeout(900)
+                print("[STEP 0] ✓")
                 if r:
-                    r.log_sub_step("Add Row", row_index, "FAIL",
-                                   error="Could not add row: {}".format(e))
+                    r.log_sub_step("Add Row", row_index, "PASS")
+            else:
+                print("[STEP 0] ⚠ Add Row not found — assuming first empty row exists")
+                if r:
+                    r.log_sub_step("Add Row", row_index, "PASS",
+                                   error="Add Row not found — assuming first empty row exists")
+        except Exception as e:
+            print("[STEP 0] ERROR: {}".format(e))
+            if r:
+                r.log_sub_step("Add Row", row_index, "FAIL",
+                               error="Could not add row: {}".format(e))
 
         # STEP 1+2: Project + Job in one tree
         print("\n[STEP 1+2] Opening project/job tree...")
@@ -337,14 +351,46 @@ async def fill_timesheet_row_form(page, params: dict):
         await page.wait_for_timeout(1000)
 
         # STEP 3: Hours
+        # Wait for enabled hour inputs to appear — they only become enabled
+        # after project+job selection renders the new row fully.
         print("\n[STEP 3] Filling hours...")
-        all_inputs = await page.query_selector_all("#timesheet-hours-input")
-        if not all_inputs:
+        all_inputs = []
+        for _attempt in range(10):
+            cands = await page.query_selector_all("#timesheet-hours-input")
+            if not cands:
+                cands = await page.query_selector_all(
+                    "input[type='number'][min='0'][max='24']")
+            # Check if any are enabled
+            enabled = []
+            for inp in cands:
+                try:
+                    if not await inp.evaluate("el => el.disabled"):
+                        enabled.append(inp)
+                except Exception:
+                    pass
+            if enabled:
+                all_inputs = cands
+                print("[STEP 3] Found {} input(s), {} enabled (attempt {})".format(
+                    len(cands), len(enabled), _attempt + 1))
+                break
+            print("[STEP 3] All inputs disabled — waiting... ({}/10)".format(_attempt + 1))
+            await page.wait_for_timeout(600)
+        else:
             all_inputs = await page.query_selector_all(
                 "input[type='number'][min='0'][max='24']")
 
-        row_inputs = all_inputs[-_DAY_COLS:] if len(all_inputs) >= _DAY_COLS else all_inputs
-        print("[STEP 3] {} input(s)".format(len(row_inputs)))
+        # Build row_inputs from enabled inputs only.
+        # The new row's inputs are enabled; existing rows' inputs are disabled.
+        # Do NOT slice by position (-5) because DOM order varies.
+        row_inputs = []
+        for inp in all_inputs:
+            try:
+                if not await inp.evaluate("el => el.disabled"):
+                    row_inputs.append(inp)
+            except Exception:
+                pass
+        row_inputs = row_inputs[:_DAY_COLS]  # take first 5 enabled inputs
+        print("[STEP 3] {} enabled input(s) in target row".format(len(row_inputs)))
 
         day_names = ["Mon", "Tue", "Wed", "Thu", "Fri"]
         hours_filled = 0

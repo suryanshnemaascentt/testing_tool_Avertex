@@ -21,8 +21,10 @@ class RunContext:
     """
 
     def __init__(self):
-        self.project_name = ""   # populated after project create / update succeeds
-        self.job_name     = ""   # populated after job add succeeds
+        self.project_name       = ""   # populated after project create / update succeeds
+        self.job_name           = ""   # populated after job add succeeds
+        self.project_start_date = ""   # ISO YYYY-MM-DD — set after project create
+        self.project_end_date   = ""   # ISO YYYY-MM-DD — set after project create
 
     def project_or(self, fallback):
         """Return project_name if set, otherwise return fallback."""

@@ -32,6 +32,35 @@ def _random_past_monday(days_back=90):
     return monday.strftime("%Y-%m-%d")
 
 
+def random_monday_in_range(start_date_str, end_date_str):
+    """
+    Pick a random Monday whose week falls within [start_date_str, end_date_str].
+    Both dates must be ISO format YYYY-MM-DD.
+    Falls back to _random_past_monday() if the range is invalid or empty.
+    """
+    try:
+        start = datetime.strptime(start_date_str, "%Y-%m-%d")
+        end   = datetime.strptime(end_date_str,   "%Y-%m-%d")
+
+        # Snap start forward to the nearest Monday (stay on start if already Monday)
+        days_to_monday = (7 - start.weekday()) % 7
+        first_monday   = start + timedelta(days=days_to_monday)
+
+        # If the first Monday overshoots the end, fall back to start's own Monday
+        if first_monday > end:
+            first_monday = start - timedelta(days=start.weekday())
+
+        # Clamp first_monday so it never exceeds end
+        if first_monday > end:
+            first_monday = end - timedelta(days=end.weekday())
+
+        total_weeks = max(1, (end - first_monday).days // 7 + 1)
+        chosen = first_monday + timedelta(weeks=random.randint(0, total_weeks - 1))
+        return chosen.strftime("%Y-%m-%d")
+    except Exception:
+        return _random_past_monday()
+
+
 # ── Job data ─────────────────────────────────────────────────
 class JobData:
     NAME = "AutoJob_{}".format(_TS)

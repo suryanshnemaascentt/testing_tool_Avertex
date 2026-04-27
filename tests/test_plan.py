@@ -1,7 +1,8 @@
 import re
+from datetime import datetime, timedelta
 
 from tests.run_context import RunContext
-from tests.test_data   import ActivityData, JobData, TimesheetData
+from tests.test_data   import ActivityData, JobData, TimesheetData, random_monday_in_range
 
 # ============================================================
 # tests/test_plan.py
@@ -27,6 +28,8 @@ _RE_JOB_NAME     = re.compile(r"Job '(.+?)'")
 def _capture_project(ctx, outcome):
     """
     Store the project name parsed from a successful create/update reason string.
+    Also records the project's start/end dates (today and today+30 days) so
+    the timesheet step can pick a date within the project's valid range.
     Called as post_hook after project create and project update steps.
     """
     if outcome.get("result") == "PASS":
@@ -34,6 +37,12 @@ def _capture_project(ctx, outcome):
         if m:
             ctx.project_name = m.group(1)
             print("[CTX] project_name captured = '{}'".format(ctx.project_name))
+        today = datetime.now()
+        two_months_ago = today - timedelta(days=60)
+        ctx.project_start_date = two_months_ago.strftime("%Y-%m-%d")
+        ctx.project_end_date   = today.strftime("%Y-%m-%d")
+        print("[CTX] project dates: {} → {}".format(
+            ctx.project_start_date, ctx.project_end_date))
 
 
 def _capture_job(ctx, outcome):
@@ -119,14 +128,17 @@ def build_plan(ctx):
 
         # ── TIMESHEET: Add ────────────────────────────────────
         # Uses ctx.project_name + ctx.job_name.
-        # START_DATE is a random past Monday — different on every run.
+        # START_DATE is a random Monday within the project's start/end dates.
         {
             "module_key": "timesheet",
             "action_key": "add_timesheet",
             "goal":       lambda c: (
                 "add_timesheet start {} | project {} | job {} "
                 "| hours {} | location {} | remarks {}".format(
-                    TimesheetData.START_DATE,
+                    random_monday_in_range(
+                        c.project_start_date, c.project_end_date
+                    ) if (c.project_start_date and c.project_end_date)
+                    else TimesheetData.START_DATE,
                     c.project_name,
                     c.job_or(JobData.NAME),
                     TimesheetData.HOURS,

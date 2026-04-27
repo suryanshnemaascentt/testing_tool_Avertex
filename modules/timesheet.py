@@ -630,6 +630,28 @@ async def _decide_add_timesheet(els, url, goal, page=None):
             await _navigate_to_week(page, s.monday)
             s.date_navigated = True
 
+            # ── Already-filled check ───────────────────────────────────
+            # Read the live page DOM. If every requested project+job is
+            # already visible, skip all row-filling and go straight to
+            # submit.
+            try:
+                live_text = await page.evaluate(
+                    "() => document.body.innerText.toLowerCase()")
+            except Exception:
+                live_text = " | ".join(
+                    (el.get("text") or "").lower()
+                    for el in (els.get("dom_raw") or [])
+                )
+            all_present = bool(s.rows) and all(
+                row["project"].lower() in live_text
+                and row["job"].lower() in live_text
+                for row in s.rows
+            )
+            if all_present:
+                print("[TS] All rows already present on page — skipping fill, going to submit")
+                s.row_states      = ["done"] * len(s.rows)
+                s.current_row_idx = len(s.rows)
+
     if s.verified:
         if r: r.update_last_step(True)
         return {"action": "done", "result": "PASS",

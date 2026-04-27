@@ -1271,8 +1271,8 @@ def _base_params(name, els, budget):
         "estimation_selector": _find_estimation_selector(ac),
         "sow_search":          "",
         "sow_selector":        _find_sow_selector(ac),
-        "start_date":          today.strftime("%m/%d/%Y"),
-        "end_date":            (today + timedelta(days=30)).strftime("%m/%d/%Y"),
+        "start_date":          (today - timedelta(days=60)).strftime("%m/%d/%Y"),
+        "end_date":            today.strftime("%m/%d/%Y"),
         "budget":              budget,
     }
 
