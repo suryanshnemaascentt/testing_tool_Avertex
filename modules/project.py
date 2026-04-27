@@ -68,13 +68,18 @@ ACTIONS = {
         "label":        "[NEG-C-08] Same start and end date — PASS if allowed or validated",
         "needs_target": False,
     },
+    "change_status": {
+        "label":        "Change project status to Active",
+        "needs_target": True,
+    },
 }
 
 ACTION_KEYS = list(ACTIONS.keys())
 
 # Regex to parse goal strings
-_UPDATE_RE = re.compile(r"update project\s+(.+?)$", re.IGNORECASE)
-_DELETE_RE = re.compile(r"delete project\s+(.+?)$", re.IGNORECASE)
+_UPDATE_RE        = re.compile(r"update project\s+(.+?)$",  re.IGNORECASE)
+_DELETE_RE        = re.compile(r"delete project\s+(.+?)$",  re.IGNORECASE)
+_CHANGE_STATUS_RE = re.compile(r"change status\s+(.+?)$",   re.IGNORECASE)
 
 
 # ============================================================
@@ -746,6 +751,139 @@ async def _decide_delete(els, url, goal):
 
 
 # ============================================================
+# CHANGE STATUS STATE + LOGIC
+# ============================================================
+
+class _ChangeStatusState:
+    def __init__(self):
+        self.target_name  = ""
+        self.nav_fired    = False
+        self.search_typed = False
+        self.chip_done    = False
+        self.verified     = False
+        self._search_wait = 0
+        self._chip_wait   = 0
+        self.MAX_WAIT     = 3
+
+    def reset(self):
+        self.__init__()
+
+_change_status_st = _ChangeStatusState()
+
+
+async def _decide_change_status(els, url, goal, page=None):
+    s = _change_status_st
+    r = get_reporter()
+
+    if not s.target_name:
+        m = _CHANGE_STATUS_RE.search(goal)
+        if m:
+            s.target_name = m.group(1).strip()
+            print("[CHANGE_STATUS] Target: '{}'".format(s.target_name))
+
+    if s.verified:
+        if r:
+            r.update_last_step(True)
+        return {"action": "done", "result": "PASS",
+                "reason": "Status changed to Active for project '{}'".format(s.target_name)}
+
+    # ── Navigate to /projects ─────────────────────────────────
+    if "projects" not in url.lower():
+        if not s.nav_fired:
+            s.nav_fired = True
+            if r:
+                r.log_step(len(r.steps) + 1,
+                           {"action": "navigate", "url": BASE_URL + "/projects"},
+                           url)
+            return {"action": "navigate", "url": BASE_URL + "/projects"}
+        return {"action": "wait", "seconds": 1}
+
+    # ── Search for project to ensure its row is visible ───────
+    if not s.search_typed:
+        si = els["search_input"]
+        if si:
+            s.search_typed = True
+            print("[CHANGE_STATUS] Searching '{}'".format(s.target_name))
+            if r:
+                r.log_step(len(r.steps) + 1,
+                           {"action": "type", "selector": si["selector"], "text": s.target_name},
+                           url)
+            return {"action": "type", "selector": si["selector"], "text": s.target_name}
+        s._search_wait += 1
+        if s._search_wait >= s.MAX_WAIT:
+            err = "Search input not found on Projects page (url: {})".format(url)
+            if r:
+                r.update_last_step(False, error=err)
+            return {"action": "done", "result": "FAIL", "reason": err}
+        return {"action": "wait", "seconds": 1}
+
+    # ── Direct Playwright: chip click → menu → select Active ──
+    if not s.chip_done:
+        if page is None:
+            s._chip_wait += 1
+            if s._chip_wait >= s.MAX_WAIT:
+                err = "Page object unavailable — cannot interact with status chip"
+                if r:
+                    r.update_last_step(False, error=err)
+                return {"action": "done", "result": "FAIL", "reason": err}
+            return {"action": "wait", "seconds": 1}
+
+        try:
+            # Find the table row for this project and click its status chip
+            row  = page.locator("tr").filter(has_text=s.target_name)
+            chip = row.locator("td:nth-child(4) .MuiChip-root").first
+            await chip.wait_for(state="visible", timeout=5000)
+            await chip.click()
+
+            # Wait for the MUI dropdown menu
+            menu = page.locator('ul[role="menu"]')
+            await menu.wait_for(state="visible", timeout=5000)
+
+            # Click the Active menu item
+            active_item = menu.locator('li[role="menuitem"]').filter(has_text="Active").first
+            await active_item.click()
+
+            # Wait briefly and check for success toast
+            alert_text = ""
+            try:
+                await page.wait_for_selector('[role="alert"]', timeout=5000)
+                alert_text = await page.locator('[role="alert"]').first.inner_text()
+            except Exception:
+                pass
+
+            s.chip_done = True
+            s.verified  = True
+
+            reason = (
+                "Status changed to Active for project '{}' — toast: {}".format(
+                    s.target_name, alert_text.strip())
+                if alert_text else
+                "Status changed to Active for project '{}' — chip clicked, Active selected".format(
+                    s.target_name)
+            )
+            if r:
+                r.update_last_step(True)
+            return {"action": "done", "result": "PASS", "reason": reason}
+
+        except Exception as e:
+            print("[CHANGE_STATUS] Error: {}".format(e))
+            # Dismiss any open menu before retrying
+            try:
+                await page.keyboard.press("Escape")
+            except Exception:
+                pass
+            s._chip_wait += 1
+            if s._chip_wait >= s.MAX_WAIT:
+                err = "Could not change status — interaction failed: {}".format(str(e)[:120])
+                if r:
+                    r.update_last_step(False, error=err)
+                return {"action": "done", "result": "FAIL", "reason": err}
+            return {"action": "wait", "seconds": 1}
+
+    return {"action": "wait", "seconds": 1}
+
+
+# ============================================================
 # NEG-01: CREATE WITH EMPTY NAME
 # ============================================================
 
@@ -1038,6 +1176,7 @@ def reset_state(keep_session=False):
     _create_st.reset()
     _update_st.reset()
     _delete_st.reset()
+    _change_status_st.reset()
     _create_empty_st.reset()
     _create_dup_st.reset()
     _neg_c03_st.reset()
@@ -1079,6 +1218,8 @@ async def decide_action(action, dom, url, goal="", email=None, password=None,pag
         return await _decide_update(els, url, goal)
     if action == "delete":
         return await _decide_delete(els, url, goal)
+    if action == "change_status":
+        return await _decide_change_status(els, url, goal, page=page)
     if action == "create_empty_name":
         return await _decide_create_empty(els, url)
     if action == "create_duplicate":
@@ -1130,8 +1271,8 @@ def _base_params(name, els, budget):
         "estimation_selector": _find_estimation_selector(ac),
         "sow_search":          "",
         "sow_selector":        _find_sow_selector(ac),
-        "start_date":          today.strftime("%m/%d/%Y"),
-        "end_date":            (today + timedelta(days=30)).strftime("%m/%d/%Y"),
+        "start_date":          (today - timedelta(days=60)).strftime("%m/%d/%Y"),
+        "end_date":            today.strftime("%m/%d/%Y"),
         "budget":              budget,
     }
 
