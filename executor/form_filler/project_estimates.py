@@ -76,7 +76,7 @@ def _generate_manual_dates():
     delta      = (end_base - start_base).days
     start      = start_base + timedelta(days=random.randint(0, delta))
     end        = start + timedelta(days=365 * 3 + random.randint(1, 365))
-    return start.strftime("%d-%m-%Y"), end.strftime("%d-%m-%Y")
+    return start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
 
 
 def _get_ai_dates():
@@ -170,11 +170,11 @@ async def fill_manual_estimate_form(page, p):
         print("[MANUAL FORM] ! Project name failed: {}".format(e))
 
     # ── 2. Description ────────────────────────────────────────
+    # ── 2. Description ────────────────────────────────────────
     try:
         ta = page.locator(
-            "textarea[placeholder*='project description' i], "
-            "textarea"
-        ).first
+             "//input[@placeholder='Brief project description (optional)']"
+            ).first
         await ta.scroll_into_view_if_needed(timeout=2000)
         await ta.click(timeout=2000)
         await ta.fill(description)
@@ -216,6 +216,91 @@ async def fill_manual_estimate_form(page, p):
         if r:
             r.log_sub_step("End Date", end_date, "FAIL", str(e))
         print("[MANUAL FORM] ! End date failed: {}".format(e))
+    
+ 
+    # =========================================================
+    # PHASE / ACTIVITY / SUBACTIVITY (CORRECT FLOW)
+    # =========================================================
+    # ── 5. Phase Rename ───────────────────────────────────────
+    try:
+        phase = page.locator(
+            "xpath=//p[contains(text(),'Phase')]"
+        ).first
+
+        await phase.click()
+        await page.keyboard.press("Control+A")
+        await page.keyboard.type("Phase_Automation")
+
+        await _wait(page, T_SHORT)
+
+        if r:
+            r.log_sub_step("Phase", "Phase_Automation", "PASS")
+        print("[MANUAL FORM] 6. Phase updated")
+
+    except Exception as e:
+        if r:
+            r.log_sub_step("Phase", None, "FAIL", str(e))
+        print("[MANUAL FORM] ! Phase failed:", e)
+
+
+    # ── 6. Activity Rename ────────────────────────────────────
+    try:
+        activity = page.locator(
+            "xpath=//tr[contains(@id,'activity-row')]//p[contains(text(),'Activity')]"
+        ).first
+
+        await activity.click()
+        await page.keyboard.press("Control+A")
+        await page.keyboard.type("Activity_Automation")
+
+        await _wait(page, T_SHORT)
+
+        if r:
+            r.log_sub_step("Activity", "Activity_Automation", "PASS")
+        print("[MANUAL FORM] 7. Activity updated")
+
+    except Exception as e:
+        if r:
+            r.log_sub_step("Activity", None, "FAIL", str(e))
+        print("[MANUAL FORM] ! Activity failed:", e)
+
+    # Step 7: Click + icon to add SubActivity
+    print("[MANUAL FORM] 6. Clicking + icon for Subactivity")
+
+    page.wait_for_selector("//tr[contains(@id,'activity-row')]", timeout=10000)
+
+    add_subactivity_btn = page.locator(
+        "//tr[contains(@id,'activity-row')]//p[contains(text(),'Activity')]/ancestor::div[1]//button"
+    ).first
+
+    add_subactivity_btn.wait_for(state="visible", timeout=10000)
+    add_subactivity_btn.scroll_into_view_if_needed()
+    add_subactivity_btn.click(force=True)
+
+    print("[OK] Subactivity + icon clicked")
+
+    # ── 8. SubActivity Rename ─────────────────────────────────
+    try:
+        sub = page.locator(
+            "xpath=(//tr[not(contains(@id,'activity-row'))]//p)[last()]"
+        )
+
+        await sub.wait_for(state="visible", timeout=5000)
+        await sub.click()
+
+        await page.keyboard.press("Control+A")
+        await page.keyboard.type("SubActivity_Automation")
+
+        await _wait(page, T_SHORT)
+
+        if r:
+            r.log_sub_step("SubActivity", "SubActivity_Automation", "PASS")
+        print("[MANUAL FORM] 8. SubActivity added")
+
+    except Exception as e:
+        if r:
+            r.log_sub_step("SubActivity", None, "FAIL", str(e))
+        print("[MANUAL FORM] ! SubActivity failed:", e)
 
     # ── Submit (Create / Save button) ─────────────────────────
     saved = False

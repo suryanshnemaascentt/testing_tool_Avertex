@@ -39,7 +39,7 @@ DEFAULT_URL   = BASE_URL + "/"
 
 # ── Credentials ──────────────────────────────────────────────
 # Set these in a .env file (see .env.example) — never hardcode here.
-LOGIN_EMAIL    = os.getenv("AVERTEX_EMAIL",    "suryansh.nema@ascentt.com")
+LOGIN_EMAIL    = os.getenv("AVERTEX_EMAIL",    "suraj.kadam@ascentt.com")
 LOGIN_PASSWORD = os.getenv("AVERTEX_PASSWORD")  # Must be set via .env or environment — no default allowed
 
 # ── Timing constants (ms) ─────────────────────────────────────
@@ -55,7 +55,7 @@ T_DATE_SEG    =  120    # delay between each date segment (month/day/year)
 VIEWPORT      = {"width": 1440, "height": 900}
 # HEADLESS defaults True so CI/production never opens a display.
 # Set HEADLESS=false in .env (or env) for local development.
-HEADLESS      = os.getenv("HEADLESS", "true").lower() == "true"
+HEADLESS      = os.getenv("HEADLESS", "true").lower() == "false"
 DOM_SETTLE_MS = 2000    # max time to wait for DOM to settle per step
 SSO_SETTLE_MS =  800    # extra wait on SSO pages after inputs appear
 POST_RUN_S    =    1.5   # seconds to keep browser open after the run finishes
