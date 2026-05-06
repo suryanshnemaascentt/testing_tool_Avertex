@@ -5,6 +5,9 @@ from config.settings    import T_SHORT, T_SAVE
 from report.test_report import get_reporter
 from ._shared           import _wait
 
+import random
+import time
+
 # ============================================================
 # executor/form_filler/project_estimates.py
 #
@@ -90,6 +93,13 @@ def _get_ai_dates():
 def _get_team_size():
     return str(random.randint(5, 50))
 
+def generate_unique_resource_name():
+    return f"resource_{int(time.time())}"
+
+
+def generate_rate():
+    return random.randint(10, 300)
+
 
 # ============================================================
 # SHARED HELPERS
@@ -145,7 +155,7 @@ async def fill_manual_estimate_form(page, p):
         if p.get("start_date") and p.get("end_date")
         else _generate_manual_dates()
     )
-
+    
     print("\n[MANUAL ESTIMATE FORM] name='{}' {} -> {}".format(
         project_name, start_date, end_date))
 
@@ -279,54 +289,232 @@ async def fill_manual_estimate_form(page, p):
 
     print("[OK] Subactivity + icon clicked")
 
-    # ── 8. SubActivity Rename ─────────────────────────────────
+    # =========================================================
+# RESOURCE RATES FLOW
+# =========================================================
+
+    print("[FLOW] Navigating to Resource Rates section")
+
     try:
-        sub = page.locator(
-            "xpath=(//tr[not(contains(@id,'activity-row'))]//p)[last()]"
-        )
+        # Timeline tab
+        await page.locator("//button[text()='Timeline']").click()
+        await _wait(page, T_SHORT)
 
-        await sub.wait_for(state="visible", timeout=5000)
-        await sub.click()
+        # Team tab
+        await page.locator("//button[text()='Team']").click()
+        await _wait(page, T_SHORT)
 
-        await page.keyboard.press("Control+A")
-        await page.keyboard.type("SubActivity_Automation")
+        # Resource Rates tab
+        await page.locator("//button[text()='Resource Rates']").click()
+        await _wait(page, T_SHORT)
+
+        print("[FLOW] Clicking Add Resource + icon")
+
+        add_btn = page.locator("//button[@aria-label='Add Resource']").first
+        await add_btn.wait_for(state="visible", timeout=10000)
+        await add_btn.scroll_into_view_if_needed()
+        await add_btn.click(force=True)
+
+        print("[FLOW] Add Resource clicked")
+
+    except Exception as e:
+        print("[ERROR] Navigation to Resource Rates failed:", e)
+
+    # =========================================================
+# FILL RESOURCE FORM
+# =========================================================
+
+    resource_name = generate_unique_resource_name()
+    onshore = generate_rate()
+    offshore = generate_rate()
+
+    print(f"[DATA] Name: {resource_name}")
+    print(f"[DATA] Onshore: {onshore}")
+    print(f"[DATA] Offshore: {offshore}")
+
+    try:
+        await page.locator("//input[@placeholder='Resource name* (e.g. senior_developer)']")\
+            .fill(resource_name)
+
+        await page.locator("//input[@placeholder='Onshore*$/hr']")\
+            .fill(str(onshore))
+
+        await page.locator("//input[@placeholder='Offshore*$/hr']")\
+            .fill(str(offshore))
+
+        print("[FORM] Clicking Add Resource button")
+
+        await page.locator("//button[text()='Add Resource']").click()
 
         await _wait(page, T_SHORT)
 
-        if r:
-            r.log_sub_step("SubActivity", "SubActivity_Automation", "PASS")
-        print("[MANUAL FORM] 8. SubActivity added")
+        print("[OK] Resource added successfully")
+    
+    except Exception as e:
+        print("[ERROR] Resource form failed:", e)
+
+    # =========================================================
+# RISK REPORT FLOW
+# =========================================================
+
+    print("[FLOW] Navigating to Risk Reports section")
+
+    import string
+
+    def generate_risk_category():
+        # Only letters, spaces, hyphens
+        base = ["Technical", "Operational", "Security", "Compliance"]
+        return random.choice(base) +  "-" + ''.join(random.choices(string.ascii_letters, k=3))
+
+    def generate_risk_description():
+        return f"Risk identified at {datetime.now().strftime('%H:%M:%S')} due to system conditions."
+
+    def generate_probability():
+        return round(random.uniform(0.1, 1.0), 2)
+
+    def generate_hours():
+        return random.randint(0, 300)
+
+
+    try:
+        # ── Navigate Tabs ───────────────────────────────
+        await page.locator("//button[text()='Risk Reports']").click()
+        await _wait(page, T_SHORT)
+
+        await page.locator("//button[text()='Risks']").click()
+        await _wait(page, T_SHORT)
+
+        # ── Add Risk ───────────────────────────────────
+        await page.locator("//button[text()='Add Risk']").click()
+        await _wait(page, T_SHORT)
+
+        print("[FLOW] Add Risk clicked")
+
+        # ── Category ───────────────────────────────────
+        category = generate_risk_category()
+
+        await page.locator("//input[@placeholder='e.g. Technical']")\
+            .fill(category)
+
+        print(f"[DATA] Category: {category}")
+
+        # ── Description ────────────────────────────────
+        description = generate_risk_description()
+
+        await page.locator("//textarea[@placeholder='Describe the risk...']")\
+            .fill(description)
+
+        print(f"[DATA] Description: {description}")
+
+        # ── Impact Dropdown ────────────────────────────
+        print("[FLOW] Selecting Impact")
+
+        impact_dropdown = page.locator(
+            "//div[@role='combobox' and contains(@class,'MuiSelect')]"
+        ).first
+
+        await impact_dropdown.click()
+        await _wait(page, T_SHORT)
+
+        # Select any option (e.g., Medium)
+        await page.locator("//ul[@role='listbox']//li").nth(1).click()
+        await _wait(page, T_SHORT)
+
+        # ── Probability ───────────────────────────────
+        prob = generate_probability()
+
+        await page.locator("//input[@placeholder='0.5']")\
+            .fill(str(prob))
+
+        print(f"[DATA] Probability: {prob}")
+
+        # ── Mitigation Strategy ───────────────────────
+        mitigation = "Mitigation plan defined for controlled handling of risk."
+
+        await page.locator("//textarea[@placeholder='Mitigation strategy...']")\
+            .fill(mitigation)
+
+        print("[DATA] Mitigation filled")
+
+        # ── Hours ─────────────────────────────────────
+        hours = generate_hours()
+
+        await page.locator("//input[@placeholder='0']")\
+            .fill(str(hours))
+
+        print(f"[DATA] Hours: {hours}")
+
+        print("[OK] Risk form filled successfully")
 
     except Exception as e:
-        if r:
-            r.log_sub_step("SubActivity", None, "FAIL", str(e))
-        print("[MANUAL FORM] ! SubActivity failed:", e)
+        print("[ERROR] Risk flow failed:", e)
 
-    # ── Submit (Create / Save button) ─────────────────────────
-    saved = False
-    for selector, desc in [
-        ("//button[normalize-space()='Create']",    "Create button"),
-        ("//button[normalize-space()='Save']",      "Save button"),
-        ("//button[contains(.,'Submit')]",          "Submit button"),
-    ]:
-        try:
-            btn = page.locator(selector).first
-            if await btn.count() > 0:
-                await btn.scroll_into_view_if_needed(timeout=2000)
-                await btn.click(timeout=3000)
-                await _wait(page, T_SAVE)
-                print("[MANUAL FORM] Submit: {}".format(desc))
-                saved = True
-                break
-        except Exception as e:
-            print("[MANUAL FORM] ! {} failed: {}".format(desc, e))
+    # =========================================================
+    # SAVE CHANGES FLOW
+    # =========================================================
 
-    if not saved:
-        print("[MANUAL FORM] No explicit submit button found — assuming auto-submit")
+    try:
+        print("[FLOW] Clicking Save Changes icon")
 
-    return True
+        save_changes_btn = page.locator(
+            "//button[@type='button'][@aria-label='Save Changes']"
+        ).first
+
+        await save_changes_btn.wait_for(state="visible", timeout=10000)
+        await save_changes_btn.scroll_into_view_if_needed()
+        await save_changes_btn.click()
+
+        await _wait(page, T_SHORT)
+
+        print("[OK] Save Changes clicked")
+
+    except Exception as e:
+        print("[ERROR] Save Changes failed:", e)
 
 
+    # =========================================================
+    # FINAL SAVE ESTIMATE
+    # =========================================================
+
+    try:
+        print("[FLOW] Clicking Save Estimate")
+
+        save_estimate_btn = page.locator(
+            "//button[text()='Save Estimate']"
+        ).first
+
+        await save_estimate_btn.wait_for(state="visible", timeout=10000)
+        await save_estimate_btn.scroll_into_view_if_needed()
+        await save_estimate_btn.click()
+
+        await _wait(page, T_SAVE)
+
+        print("[OK] Save Estimate clicked")
+
+    except Exception as e:
+        print("[ERROR] Save Estimate failed:", e)
+    
+    # =========================================================
+# BACK TO ESTIMATES
+# =========================================================
+
+    try:
+        print("[FLOW] Clicking Back to Estimates")
+
+        back_btn = page.locator("//button[text()='Back to Estimates']").first
+
+        await back_btn.wait_for(state="visible", timeout=10000)
+        await back_btn.scroll_into_view_if_needed()
+        await back_btn.click()
+
+        await _wait(page, T_SHORT)
+
+        print("[OK] Navigated back to Estimates list")
+
+    except Exception as e:
+        print("[ERROR] Back to Estimates failed:", e)
+
+    return project_name
 # ============================================================
 # AI ESTIMATE FORM
 # ============================================================
@@ -567,3 +755,23 @@ async def fill_ai_estimate_form(page, p):
             r.log_sub_step("Generate Estimate", None, "FAIL", str(e))
         print("[AI FORM] ! Generate Estimate failed: {}".format(e))
         return False
+    
+    # =========================================================
+    # BACK TO ESTIMATES
+    # =========================================================
+
+    try:
+        print("[FLOW] Clicking Back to Estimates")
+
+        back_btn = page.locator("//button[text()='Back to Estimates']").first
+
+        await back_btn.wait_for(state="visible", timeout=10000)
+        await back_btn.scroll_into_view_if_needed()
+        await back_btn.click()
+
+        await _wait(page, T_SHORT)
+
+        print("[OK] Navigated back to Estimates list")
+
+    except Exception as e:
+        print("[ERROR] Back to Estimates failed:", e)

@@ -12,6 +12,7 @@ from report.test_report import get_reporter
 #     edit_estimate : New Estimate -> Create Manually -> fill form
 #     estimate_ai   : New Estimate -> Start with AI   -> fill form
 # ============================================================
+import time
 
 NAV_FRAGMENT = "estimates"
 
@@ -160,7 +161,11 @@ async def _decide_manual_estimate(els, url):
             r.update_last_step(True)
         return {"action": "done", "result": "PASS",
                 "reason": "Manual estimate created"}
-
+    # ── Ensure we are back on Estimates page ─────────────
+    if "/estimates" not in url:
+        print("[VERIFY] Waiting to return to Estimates page...")
+        return {"action": "wait", "seconds": 2}
+    
     # ── Step 3: Verify after form_filler returns ───────────────
     if s.form_submitted:
         dom_raw = els.get("dom_raw") or []
@@ -189,27 +194,56 @@ async def _decide_manual_estimate(els, url):
             return {"action": "done", "result": "FAIL",
                     "reason": "Manual estimate — error shown after form submission"}
 
-        if toast_found:
-            s.verified = True
-            if r:
-                r.update_last_step(True)
-            return {"action": "done", "result": "PASS",
-                    "reason": "Manual estimate created — toast confirmed"}
+        # ── NEW: Check estimate in list ───────────────────────────
+        estimate_name = getattr(s, "estimate_name", None)
 
-        s._verify_wait += 1
-        if s._verify_wait >= s.MAX_WAIT:
+        estimate_found = False
+        if estimate_name:
+            for el in dom_raw:
+                text = (el.get("text") or "").lower()
+                if estimate_name.lower() in text:
+                    estimate_found = True
+                    break
+
+        print(f"[ASSERT] Estimate Found in List: {estimate_found}")
+
+        # ── FINAL DECISION ────────────────────────────────────────
+        if toast_found and estimate_found:
             s.verified = True
             if r:
                 r.update_last_step(True)
-            return {"action": "done", "result": "PASS",
-                    "reason": "Manual estimate created (no error after {} waits)".format(
-                        s.MAX_WAIT)}
-        return {"action": "wait", "seconds": 1}
+            return {
+                "action": "done",
+                "result": "PASS",
+                "reason": f"Estimate '{estimate_name}' created and verified in list"
+            }
+
+        if toast_found and not estimate_found:
+            return {"action": "wait", "seconds": 2}
+
+            s._verify_wait += 1
+            if s._verify_wait >= s.MAX_WAIT:
+                    s.verified = True
+                    if r:
+                        r.update_last_step(True)
+                    return {"action": "done", "result": "PASS",
+                            "reason": "Manual estimate created (no error after {} waits)".format(
+                                s.MAX_WAIT)}
+            return {"action": "wait", "seconds": 1}
 
     # ── Step 2: Dispatch form filler after Create Manually ─────
     if s.clicked_manual and not s.form_submitted:
         s.form_submitted = True
-        step = {"action": "fill_manual_estimate_form", "params": {}}
+        estimate_name = "AUTO_" + str(int(time.time()))
+
+        s.estimate_name = estimate_name   # ✅ STORE HERE
+
+        step = {
+            "action": "fill_manual_estimate_form",
+            "params": {
+                "project_name": estimate_name
+            }
+        }
         if r:
             r.log_step(len(r.steps) + 1, step, url)
         print("[MANUAL] Step 2: Dispatching fill_manual_estimate_form")
@@ -444,3 +478,4 @@ async def decide_action(action, dom, url, goal="", email=None, password=None, pa
         return await _decide_ai_estimate(els, url)
 
     return {"action": "wait", "seconds": 1}
+    
